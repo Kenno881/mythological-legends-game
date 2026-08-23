@@ -276,7 +276,7 @@ function draw(s){
     let visualCenterY = mon.y, visualRadius = mon.radius;
 
     if(sprite){
-      const drawHeight = mon.radius * 4.5;
+      const drawHeight = mon.radius * 6; // bumped from 4.5 2026-08-23 — sprites read too small, especially on phones (the whole 1000x750 world gets squeezed into a much smaller CSS box there)
       const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
       const drawX = mon.x - drawWidth / 2;
       const drawY = mon.y + mon.radius - drawHeight;
@@ -327,7 +327,7 @@ function draw(s){
     let ringCenterY = p.y, ringRadius = p.radius;
 
     if(sprite){
-      const drawHeight = p.radius * 4.5;
+      const drawHeight = p.radius * 6; // bumped from 4.5 2026-08-23, same reasoning as the monster sprite above
       const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
       const drawX = p.x - drawWidth / 2;
       const drawY = p.y + p.radius - drawHeight; // feet ~ bottom of the collision circle

@@ -125,3 +125,20 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 }
 #kbHint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
   font-size:12px;color:var(--parchment-dark);opacity:.8;}
+
+/* The game world is a fixed 4:3 landscape shape — on a narrow portrait
+   phone that gets letterboxed down to a thin strip no matter how big
+   individual sprites are drawn, since the whole scene has to shrink to
+   fit the width. Landscape gives a meaningfully bigger canvas instead of
+   more code (a real per-device zoom/camera is the actual fix, tracked as
+   future scrolling-dungeon work) — nudge portrait phones to rotate. */
+#rotateHint{display:none;}
+@media (max-width:700px) and (orientation:portrait){
+  #rotateHint{display:flex;position:absolute;inset:0;z-index:50;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    background:rgba(10,8,5,.92);color:var(--gold-bright);text-align:center;padding:24px;}
+  #rotateHint .icon{font-size:40px;animation:rotateHintSpin 1.6s ease-in-out infinite;}
+}
+@keyframes rotateHintSpin{
+  0%,100%{transform:rotate(0deg);} 50%{transform:rotate(-90deg);}
+}
