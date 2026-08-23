@@ -7,6 +7,7 @@ const CLASSES = {
     desc1: "One button smashes. One shield bash saves the day.",
     desc2: "Tough as oak. Hard to go wrong.",
     color:"#c94040", hp:130, speed:190, radius:16,
+    sprite: "assets/sprites/squire.png",
     attack:{dmg:14, range:34, cd:0.35},
     special1:{name:"Shield Bash", cd:7, dmg:10, radius:70, stun:1.4, cost:0},
     hasMana:false
@@ -16,6 +17,7 @@ const CLASSES = {
     desc1: "Attack, Parry incoming blows, and Taunt foes off allies.",
     desc2: "Positioning and timing matter.",
     color:"#8a8a86", hp:110, speed:200, radius:16,
+    sprite: "assets/sprites/knight.png",
     attack:{dmg:12, range:36, cd:0.4},
     special1:{name:"Parry", cd:6, block:0.65, dur:1.0, cost:0},
     special2:{name:"Taunt", cd:9, radius:150, dur:4, cost:0},
@@ -26,6 +28,7 @@ const CLASSES = {
     desc1: "Arcane Bolt from range, Nova to clear a crowd.",
     desc2: "Manage mana. Keep your distance.",
     color:"#4090c9", hp:75, speed:190, radius:14,
+    sprite: "assets/sprites/merlinsapprentice.png",
     attack:{dmg:11, range:280, cd:0.5, cost:8, projectile:true},
     special1:{name:"Arcane Nova", cd:5, dmg:26, radius:110, cost:35},
     hasMana:true, maxMana:100, manaRegen:9
@@ -35,6 +38,7 @@ const CLASSES = {
     desc1: "Staff strikes, Healing Light, and a group Blessing.",
     desc2: "Watch everyone's health, not just your own.",
     color:"#e8c14a", hp:85, speed:195, radius:14,
+    sprite: "assets/sprites/avaloncleric.png",
     attack:{dmg:8, range:40, cd:0.5},
     special1:{name:"Healing Light", cd:3, heal:32, cost:20},
     special2:{name:"Blessing", cd:14, heal:22, buff:1.3, buffDur:8, cost:55},

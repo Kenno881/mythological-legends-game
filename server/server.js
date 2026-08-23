@@ -132,12 +132,17 @@ const reconnectTimers = new Map();  // playerId -> pending-removal timeout, only
 const CLIENT_ROOT = path.join(__dirname, '..');
 const STATIC_DIRS = {
   '/css/': path.join(CLIENT_ROOT, 'css'),
-  '/js/': path.join(CLIENT_ROOT, 'js')
+  '/js/': path.join(CLIENT_ROOT, 'js'),
+  // On-disk path is Assets/processed (see tools/process-sprites.js) — the
+  // public URL prefix stays lowercase /assets/ to match this project's
+  // other static routes; only the filesystem side needs the real casing.
+  '/assets/': path.join(CLIENT_ROOT, 'Assets', 'processed')
 };
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8'
+  '.js': 'text/javascript; charset=utf-8',
+  '.png': 'image/png'
 };
 
 function resolveStaticFile(urlPath){

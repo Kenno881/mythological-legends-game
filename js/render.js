@@ -13,6 +13,22 @@ function dungeonByName(name){
   return DUNGEONS.find(d => d.name === name) || null;
 }
 
+// ---------- CHARACTER SPRITES ----------
+// Preloaded once at startup. A class with no `sprite` entry (or one that
+// hasn't finished loading yet) just falls back to the plain colored circle
+// this game always drew — nothing breaks while art is still in progress.
+const characterSprites = {};
+Object.entries(CLASSES).forEach(([key, c])=>{
+  if(!c.sprite) return;
+  const img = new Image();
+  img.src = c.sprite;
+  characterSprites[key] = img;
+});
+function spriteFor(classKey){
+  const img = characterSprites[classKey];
+  return (img && img.complete && img.naturalWidth > 0) ? img : null;
+}
+
 // ---------- BANNER / LOOT TOAST ----------
 let bannerTimeout = null;
 function showBanner(text){
@@ -178,30 +194,51 @@ function draw(s){
   // players
   s.players.forEach(p=>{
     if(p.dead) return;
-    ctx.beginPath();
-    ctx.fillStyle = p.color;
-    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    ctx.fill();
+    const sprite = spriteFor(p.classKey);
+
+    // Status rings (gear tier, block, buff, spawn protection) are meant to
+    // visually hug the whole character. That's just p.radius when drawing
+    // the old fallback circle, but a sprite is much taller than the tiny
+    // collision radius, so ringCenterY/ringRadius describe its actual drawn
+    // silhouette instead — collision/gameplay radius (p.radius) is
+    // untouched, this is purely a rendering choice.
+    let ringCenterY = p.y, ringRadius = p.radius;
+
+    if(sprite){
+      const drawHeight = p.radius * 4.5;
+      const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
+      const drawX = p.x - drawWidth / 2;
+      const drawY = p.y + p.radius - drawHeight; // feet ~ bottom of the collision circle
+      ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+      ringCenterY = drawY + drawHeight / 2;
+      ringRadius = drawHeight / 2 * 0.65;
+    } else {
+      ctx.beginPath();
+      ctx.fillStyle = p.color;
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.strokeStyle = GEAR_TIERS[p.gearTier].color;
     ctx.lineWidth = p.id === myId ? 4 : 2;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius, 0, Math.PI * 2); ctx.stroke();
     if(p.blockActive){
       ctx.strokeStyle = "rgba(220,230,240,0.9)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 6, 0, Math.PI * 2); ctx.stroke();
     }
     if(p.buffMult > 1){
       ctx.strokeStyle = "rgba(232,193,74,0.9)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 12, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 10, 0, Math.PI * 2); ctx.stroke();
     }
     if(p.spawnProtection > 0){
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150);
       ctx.strokeStyle = `rgba(255,255,255,${0.35 + 0.35 * pulse})`;
       ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 16, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 14, 0, Math.PI * 2); ctx.stroke();
     }
     if(p.id !== myId){
       ctx.fillStyle = "#fff"; ctx.font = "11px Georgia"; ctx.textAlign = "center";
-      ctx.fillText(p.name, p.x, p.y - p.radius - 10);
+      ctx.fillText(p.name, p.x, ringCenterY - ringRadius - 8);
       ctx.textAlign = "left";
     }
   });
