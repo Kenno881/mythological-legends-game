@@ -48,7 +48,7 @@ const CLASSES = {
 
 // ---------- DATA: GEAR TIERS ----------
 const GEAR_TIERS = [
-  {name:"Iron",   mult:1.0,  color:"#9a9a92"}, // no icon yet — gear_tier_iron.png hasn't been dropped in
+  {name:"Iron",   mult:1.0,  color:"#9a9a92", sprite:"assets/sprites/gear_tier_iron.png"},
   {name:"Steel",  mult:1.35, color:"#c7d3de", sprite:"assets/sprites/gear_tier_steel.png"},
   {name:"Silver", mult:1.75, color:"#dfe6ee", sprite:"assets/sprites/gear_tier_silver.png"},
   {name:"Excalibur Shard", mult:2.4, color:"#e8c14a", sprite:"assets/sprites/gear_tier_excalibur.png"}

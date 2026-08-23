@@ -1,0 +1,30 @@
+[
+  {
+    "name": "zombie",
+    "prompt": "an undead zombie shambling forward with arms outstretched, tattered grave clothes, decayed green-grey skin, glowing dim yellow eyes, hunched posture — a common flooded-chapel undead, not a boss"
+  },
+  {
+    "name": "wraith",
+    "prompt": "a ghostly wraith, translucent pale teal-white ethereal spectral form with a tattered wispy shroud, hollow glowing eyes, no visible legs — floating rather than standing, faint glowing aura"
+  },
+  {
+    "name": "greenKnight",
+    "prompt": "a towering armored Green Knight from Arthurian legend, entirely green-tinted plate armor with moss and evergreen accents, holding a large battle axe, noble but eerie and otherworldly presence — a dungeon boss, imposing and detailed"
+  },
+  {
+    "name": "direKnight",
+    "prompt": "a heavily armored dire dark knight, near-black plate armor with deep purple trim and accents, more menacing and bulkier than a common dark knight, wielding a heavy two-handed weapon — a tough regular enemy, not a boss"
+  },
+  {
+    "name": "mordred",
+    "prompt": "Mordred, a treacherous Arthurian villain knight in black and deep burgundy-red armor with a serpent sigil on the chestplate, cruel expression, wielding a wicked curved sword — a major dungeon boss, imposing and detailed"
+  },
+  {
+    "name": "mistWraith",
+    "prompt": "an ethereal mist wraith, pale glowing cyan swirling fog-like humanoid form with wisps of magical mist trailing from its body, faint glowing blue eyes, mystical and otherworldly — distinct from a classic ghost, more like living magical fog"
+  },
+  {
+    "name": "questingBeast",
+    "prompt": "the Questing Beast from Arthurian legend, a fantastical chimeric monster with a serpent-like head, a leopard-spotted body, a lion's powerful hindquarters, and deer-like feet, deep purple and violet mystical coloring, otherworldly and strange — a major dungeon boss, large and detailed"
+  }
+]

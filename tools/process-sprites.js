@@ -89,21 +89,45 @@ async function processOne(srcPath, outPath){
     .toFile(outPath);
 }
 
+// Picks one source file per base name, preferring .png (lossless) over
+// .jpg/.jpeg — only falls back to a .jpg when that name has no .png at all.
+// This is what lets a jpg-only export (e.g. an art tool that didn't offer a
+// transparent-capable format) get picked up automatically without also
+// silently reprocessing every already-working name that happens to have
+// both formats sitting in the folder from an earlier export.
+function pickSourceFiles(dir){
+  const all = fs.readdirSync(dir);
+  const byBase = new Map(); // base name (no ext) -> chosen filename
+
+  for(const file of all){
+    const ext = path.extname(file).toLowerCase();
+    if(ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg') continue;
+    const base = path.basename(file, path.extname(file)).toLowerCase();
+
+    const existing = byBase.get(base);
+    if(!existing || (path.extname(existing).toLowerCase() !== '.png' && ext === '.png')){
+      byBase.set(base, file);
+    }
+  }
+  return [...byBase.values()];
+}
+
 async function main(){
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  const files = fs.readdirSync(SRC_DIR).filter(f => f.toLowerCase().endsWith('.png'));
+  const files = pickSourceFiles(SRC_DIR);
   if(files.length === 0){
-    console.log(`No .png files found in ${SRC_DIR}`);
+    console.log(`No .png/.jpg files found in ${SRC_DIR}`);
     return;
   }
 
   for(const file of files){
     const srcPath = path.join(SRC_DIR, file);
-    const outPath = path.join(OUT_DIR, file.toLowerCase());
+    const base = path.basename(file, path.extname(file)).toLowerCase();
+    const outPath = path.join(OUT_DIR, `${base}.png`);
     await processOne(srcPath, outPath);
     const { size } = fs.statSync(outPath);
-    console.log(`${file} -> Assets/processed/sprites/${file.toLowerCase()} (${(size / 1024).toFixed(0)} KB)`);
+    console.log(`${file} -> Assets/processed/sprites/${base}.png (${(size / 1024).toFixed(0)} KB)`);
   }
 }
 
