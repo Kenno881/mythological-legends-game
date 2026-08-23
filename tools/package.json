@@ -4,9 +4,11 @@
   "private": true,
   "description": "Offline asset-processing scripts (sprite chroma-key/trim, etc). Not deployed with the server — sharp's native bindings have no business in the Railway image.",
   "scripts": {
-    "process-sprites": "node process-sprites.js"
+    "process-sprites": "node process-sprites.js",
+    "generate-sprites": "node generate-sprites.js"
   },
   "dependencies": {
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "@google/genai": "^1.0.0"
   }
 }
