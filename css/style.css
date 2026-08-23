@@ -33,6 +33,8 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
   color:var(--parchment);text-align:center;padding:24px;}
 .hidden{display:none !important;}
 
+.title-banner{max-width:min(90%,400px);height:auto;margin-bottom:8px;image-rendering:pixelated;}
+
 .title-plate{font-size:clamp(28px,6vw,52px);letter-spacing:3px;color:var(--gold-bright);
   text-shadow:2px 2px 0 var(--ink), 0 0 24px rgba(201,162,39,.5);
   border-top:3px solid var(--gold); border-bottom:3px solid var(--gold);

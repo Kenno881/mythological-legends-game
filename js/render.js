@@ -13,6 +13,18 @@ function dungeonByName(name){
   return DUNGEONS.find(d => d.name === name) || null;
 }
 
+// ---------- FLOOR TEXTURE ----------
+// A single tileable stone texture reused for every dungeon (and the safe
+// room), color-washed per-room with that room's floorColor so each
+// dungeon still reads as visually distinct despite sharing one tile.
+// Kept at its exact original pixel size (not run through
+// tools/process-sprites.js's trim step, which would shift the tile
+// boundary by a pixel or two and break the seamless repeat).
+const floorTileImg = new Image();
+floorTileImg.src = 'assets/sprites/dungeon_floor.png';
+let floorPattern = null;
+floorTileImg.addEventListener('load', () => { floorPattern = ctx.createPattern(floorTileImg, 'repeat'); });
+
 // ---------- SPRITES ----------
 // Preloaded once at startup from CLASSES/ENEMY_TYPES/GEAR_TIERS's `sprite`
 // fields. Anything with no `sprite` entry (or one that hasn't finished
@@ -174,12 +186,20 @@ function draw(s){
   const floorColor = s.safe ? '#3d3020' : (dungeon ? dungeon.floorColor : '#222');
   const wallColor = s.safe ? '#241c12' : (dungeon ? dungeon.wallColor : '#111');
 
-  // floor
-  ctx.fillStyle = floorColor;
-  ctx.fillRect(-20, -20, W + 40, H + 40);
-  ctx.strokeStyle = "rgba(0,0,0,0.15)";
-  for(let gx = 0; gx < W; gx += 50){ ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
-  for(let gy = 60; gy < H; gy += 50){ ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+  // floor — tiled stone texture once loaded, color-washed per room so
+  // each dungeon (and the safe room) still reads distinctly; a flat fill
+  // until the texture finishes loading so there's never a blank frame.
+  if(floorPattern){
+    ctx.fillStyle = floorPattern;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = floorColor;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = floorColor;
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+  }
   // walls border
   ctx.fillStyle = wallColor;
   ctx.fillRect(0, 0, W, 24); ctx.fillRect(0, H - 16, W, 16);
