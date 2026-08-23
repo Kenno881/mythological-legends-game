@@ -18,6 +18,14 @@
 // action, not something this code can do). Falls back to a local file
 // under server/data/ for dev, gitignored since it's throwaway local state.
 //
+// Every write is wrapped so a persistence failure (bad mount, permissions,
+// full disk) can never take down the actual game for the family — it logs
+// loudly to stderr (visible in Railway's Deploy Logs) and the in-memory
+// game state carries on exactly as it did before this file existed. Also
+// runs a startup self-test that logs a clear PASS/FAIL for the resolved
+// DB_PATH, so a bad mount shows up in the logs immediately instead of as
+// silent "nothing ever gets written".
+//
 // Scope note: this covers what's actually simulated by server.js today —
 // lifetime kill/death counts (survive both reconnects and a "new character"
 // after death — see recordKill/recordDeath below) and per-dungeon best clear
@@ -34,30 +42,53 @@ const path = require('path');
 const fs = require('fs');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'camelot.json');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+console.log(`[db] DB_PATH resolved to: ${DB_PATH}`);
 
 function defaultState(){
   return { players: {}, bestTimes: {}, family: { currency: 0, unlocks: [] } };
 }
 
-function load(){
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-  } catch (err) {
-    if(err.code !== 'ENOENT') console.error('[db] failed to read/parse DB file, starting fresh:', err.message);
-    return defaultState();
+let state = defaultState();
+
+try {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  state = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+  console.log(`[db] loaded existing state (${Object.keys(state.players || {}).length} known players)`);
+} catch (err) {
+  if(err.code === 'ENOENT'){
+    console.log('[db] no existing DB file yet — starting fresh (expected on first-ever boot)');
+  } else {
+    console.error(`[db] failed to load ${DB_PATH}, starting fresh in memory only:`, err.message);
   }
 }
 
-let state = load();
+// Startup self-test: prove the resolved path is actually writable right
+// now, rather than finding out the hard way on the first real game event.
+(function selfTest(){
+  const probePath = DB_PATH + '.selftest';
+  try {
+    fs.writeFileSync(probePath, 'ok');
+    fs.unlinkSync(probePath);
+    console.log('[db] startup write test: PASS — persistence should work');
+  } catch (err) {
+    console.error(`[db] startup write test: FAIL (${err.code}) — ${err.message}`);
+    console.error('[db] persistence is DISABLED for this run; the game will play fine, nothing will survive a restart. Check the Railway volume is actually mounted and writable at this path.');
+  }
+})();
 
 // Write to a temp file then rename over the real one — an atomic swap on
 // both POSIX and Windows, so a process kill mid-write (Railway sends
 // SIGTERM on redeploy) can never leave a half-written, corrupt JSON file.
+// Never throws — logs and gives up on THIS write, leaving in-memory state
+// (and gameplay) completely unaffected.
 function persist(){
   const tmpPath = DB_PATH + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(state));
-  fs.renameSync(tmpPath, DB_PATH);
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(state));
+    fs.renameSync(tmpPath, DB_PATH);
+  } catch (err) {
+    console.error(`[db] write failed (${err.code}):`, err.message);
+  }
 }
 
 // Called on every new WebSocket connection (server.js), before 'join' is
