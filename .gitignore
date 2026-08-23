@@ -1,6 +1,6 @@
 node_modules/
 
-# Local-dev SQLite persistence (server/db.js falls back to this path when
-# DB_PATH isn't set) — the real deployed DB lives on a Railway volume, never
-# in the repo.
+# Local-dev persistence file (server/db.js falls back to this path when
+# DB_PATH isn't set) — the real deployed data lives on a Railway volume,
+# never in the repo.
 server/data/
