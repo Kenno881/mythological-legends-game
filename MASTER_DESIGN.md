@@ -276,6 +276,60 @@ not the gear/boon split itself.
 
 ---
 
+## 8a. Accounts, Characters & Party Flow (New Direction, Planning Stage)
+
+**Two identity layers, not one — decided.**
+1. **Connection passphrase** (existing) — the outer gate. Keeps strangers
+   off the public Railway URL entirely, before login even happens.
+2. **Account login** (new) — username + short PIN per family member,
+   identifying *which* persistent character this is, independent of
+   device. Replaces the old device-bound anonymous `playerId`
+   (localStorage-only identity broke if two kids shared a tablet, or one
+   kid used two devices).
+
+**Login once per device, then remembered.** Same UX pattern as the
+existing reconnect mechanic — store the logged-in account's ID in
+localStorage after first login, so kids aren't re-entering a PIN every
+session, only the first time on a given device or when explicitly
+switching accounts on a shared one.
+
+**PINs stored hashed, not plaintext** — cheap to do correctly from the
+start, no reason not to.
+
+**Character creation, once per account, immediately after first login.**
+Name + class — both genuinely permanent (decided — matches the D&D-campaign
+framing, §10).
+
+**Party is a fixed roster of four.** Not inferred, not managed as a list —
+the family's four accounts *are* the roster.
+
+**Party "muster" before any dungeon.** Rather than jumping straight into a
+dungeon, logged-in players land in a shared staging screen: who's
+currently connected, their character name/class/level, and a Ready toggle.
+Has to be exactly as simple as gameplay itself, since it's the thing that
+decides whether a kid can actually start playing unsupervised — one
+obvious button, not a menu to navigate.
+
+**Full party (all four) required only for first clears.** A dungeon being
+entered for the first time requires all four accounts present and ready —
+nobody misses the first run of new content. Once a dungeon has been
+cleared at least once, it can be replayed with any subset — solo, farming,
+practice, or catching up. Tracked as a `firstCleared` flag per dungeon at
+the family level, not per character.
+
+**Level boosting for catch-up.** Ken's account carries an admin flag,
+enabling a direct level-set action on any character — for someone who
+missed sessions and needs to catch up to the rest of the family. No
+separate access-control system needed at this scale, just the one flag.
+
+**Open questions:**
+- PIN length/format and recovery (if a kid forgets it — likely just "ask
+  Ken to reset it" via the same admin flag, no need for anything fancier).
+- Whether the roster could ever grow past four if a friend joins
+  occasionally, or whether that's explicitly out of scope.
+
+---
+
 ## 9. Dungeon Runs — Maze-Structured Escalation (New Direction, Planning Stage)
 
 **Supersedes the earlier separate "Campaign vs. Wilds" split, and resolves
@@ -340,28 +394,38 @@ permanent-character feel that's actually the point here.
 requires a real store.
 
 **Proposed approach:** SQLite on a small Railway persistent volume — no
-need for a separate managed Postgres service at family scale. Keyed by the
-existing persistent `playerId`.
+need for a separate managed Postgres service at family scale.
 
-**Schema (updated for the three-slot gear system, §7 — build this shape
-from day one, not the old single-tier version):**
+**Schema — updated for accounts/login (§8a) and the three-slot gear system
+(§7). Build this shape from day one; both changes land before Phase 2
+ships, so there's no migration to worry about:**
 ```
-players
-  id (playerId, primary key)
+accounts
+  id (primary key)
+  username
+  pin_hash              -- never store plaintext
+  is_admin              -- Ken's account only, gates level-boost action
+  created_at, last_seen_at
+
+characters
+  account_id (foreign key -> accounts.id, one-to-one for now)
   name
+  class                 -- permanent once set
   level, xp
   equipment (json — { weapon: tierId, armor: tierId, artifact: itemId|null })
-  currency          -- shared family pool, see below
-  best_run_time_seconds   -- per dungeon or overall, TBD
-  total_kills
-  total_deaths
-  unlocks (json array — permanent unlock IDs)
-  created_at, last_seen_at
+
+family_progress          -- shared, not per-account
+  currency               -- shared pool, decided (see below)
+  unlocks (json array)
+  dungeons_first_cleared (json array of dungeon IDs)
+  total_kills, total_deaths
+  best_run_time_seconds  -- per dungeon or overall, TBD
 ```
 
-**Decided:** shared family currency pool, not per-player — fits the
-"we're building this together" spirit better than individual competition
-(carried over from the earlier defaults discussion).
+**Decided:** shared family currency (and unlock/first-clear progress) lives
+at the family level, not duplicated per account — matches the "we're
+building this together" framing, and is simpler than reconciling four
+separate copies of the same shared state.
 
 **Open questions:**
 - What's actually worth unlocking? (New starting classes, cosmetic skins,
@@ -377,10 +441,28 @@ as-is regardless of the run-model change)*
 - [ ] Remaining 7 monster sprites + Iron gear icon
 - [ ] Sound pass (Web Audio API, synthesized — no external assets needed)
 
-**Phase 2 — Persistence foundation**
+**Phase 2 — Persistence, accounts & party foundation**
 - [ ] Add SQLite + Railway volume
-- [ ] Schema (three-slot equipment shape, §7/§11) + read/write wiring on
-      connect/disconnect/key events
+- [ ] Schema per §11 (accounts, characters, family_progress tables) —
+      build with login/accounts from the start, not the old anonymous
+      device-ID approach
+- [ ] Login flow: username + PIN (hashed), remembered client-side after
+      first login on a device (same reconnect-style UX as before, just
+      keyed to the account)
+- [ ] One-time character creation immediately after first login (name +
+      class, both permanent — decided, §8a)
+- [ ] Party "muster" staging screen before entering any dungeon — shows
+      who's logged in, character/class/level, a Ready toggle. Must be as
+      simple as gameplay itself; this is what "kids jump in on their own"
+      depends on.
+- [ ] `firstCleared` flag per dungeon (family-wide) — gates the full-party
+      (all four accounts) requirement on first clears only; already-cleared
+      dungeons allow any subset
+- [ ] Admin flag on Ken's account, gating a direct level-set action for
+      catch-up
+- [ ] Remember the connection passphrase client-side too, alongside the
+      logged-in account, so kids aren't retyping either credential each
+      session
 
 **Phase 3 — Permanent leveling + in-run boons**
 - [ ] Permanent XP/level system (never resets)
@@ -432,7 +514,6 @@ as-is regardless of the run-model change)*
 - Exact level thresholds per dungeon (§5)
 - What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
-- Per-player vs. per-family shared currency (§11)
 - Concrete unlock catalog for meta-progression (§11)
 - Rare/named boss roster per dungeon — who they are, what makes each one
   feel distinct beyond a stat bump (§5)
@@ -443,6 +524,8 @@ as-is regardless of the run-model change)*
 - Weapon/Armor tier names beyond the current sketch (§7)
 - Full Artifact catalog — which bosses drop which named item, and each
   item's specific passive effect (§7)
+- PIN length/format and recovery flow (§8a)
+- Whether the roster could ever grow past four (§8a)
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
@@ -465,3 +548,9 @@ as-is regardless of the run-model change)*
   bosses/arcs rather than a generic tier (§7). Persistence schema (§11)
   built three-slot from the start.
 - Currency is a shared family pool, not per-player (§11).
+- Party roster is fixed at four accounts — not inferred or managed as a
+  list, the four family logins are the roster (§8a).
+- Real login (username + PIN, hashed) replaces the old anonymous
+  device-based identity, so any family member gets their own persistent
+  character from any device (§8a).
+- Class choice is permanent once a character is created — no respec (§8a).
