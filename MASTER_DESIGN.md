@@ -58,21 +58,22 @@ beyond the session they happen in.
 - Spawn protection on join/reconnect.
 - Roster HUD (party HP at a glance).
 - Four classes, four full dungeons with named bosses (see §4, §5).
-- AI-generated sprite art for the Campaign's first dungeon's roster + first
-  boss, via a Gemini-image → `tools/process-sprites.js` (flood-fill background
-  removal, auto-trim, resize) pipeline. Fallback to colored circles for
-  anything without art yet — nothing breaks mid-rollout.
+- AI-generated sprite art for every class, monster, and gear tier, via a
+  Gemini-image → `tools/process-sprites.js` (flood-fill background removal,
+  auto-trim, resize) pipeline. Fallback to colored circles for anything
+  without art — nothing breaks mid-rollout.
+- Synthesized sound (Web Audio API, no external assets) — hits, ability
+  casts, boss slam telegraph, victory/defeat stingers (`js/audio.js`).
+- SQLite-shaped persistence (a JSON file, not actual SQL — see §11) on a
+  Railway volume — lifetime kill/death counts and per-dungeon best times
+  survive a restart, still keyed by the old anonymous `playerId`.
 - Taunt as a hard target-override (not yet a full accumulating threat table).
 - Flat loot drop (35% per kill, 100% from bosses) — no rarity tiers yet.
 
 ### Known gaps (Campaign)
-- 7 of 11 monster sprites still placeholder circles (only Sherwood
-  Approach's roster + Black Knight are done). Iron gear icon missing (source
-  `.jpg` never converted — pipeline only reads `.png`).
 - All four bosses share one mechanic (telegraphed AoE slam) at different
   numbers. No boss has a mechanic distinct to its legend yet.
 - No rare/named spawns. No weighted loot rarity.
-- No sound anywhere in the repo.
 - Threat is "nearest player, unless taunted" — no accumulating threat table,
   so healing doesn't pull aggro the way it would on a real threat system.
 
@@ -439,9 +440,8 @@ separate copies of the same shared state.
 **Phase 1 — Sprite/loot/sound cleanup** *(nearly done, still worth finishing
 as-is regardless of the run-model change)*
 - [x] Iron gear icon *(done 2026-08-23)*
-- [ ] Remaining 7 monster sprites — batch prompts prepped
-      (`tools/enemy-requests.json`), blocked on running the Gemini
-      generation with a valid API key
+- [x] Remaining 7 monster sprites *(done 2026-08-23, via
+      `tools/enemy-requests.json` batch generation)*
 - [x] Sound pass (Web Audio API, synthesized — no external assets needed)
       *(done 2026-08-23, `js/audio.js`)*
 
