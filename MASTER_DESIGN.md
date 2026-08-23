@@ -72,6 +72,10 @@ beyond the session they happen in.
   all 4 family accounts online before the gate opens *(replaces the
   earlier login-time "muster" screen, removed 2026-08-23 — the family
   gate belongs on later dungeons, not on getting into the game at all)*.
+- Sherwood Approach's first chamber branches into an optional side
+  chamber (2026-08-23, §9) — tougher fight, guaranteed loot, clearly
+  warned before committing. Only this one dungeon/branch so far.
+- Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
   server restart.
@@ -385,6 +389,18 @@ layouts + spawn tables + boss rosters on the same engine.
 **Shares across all dungeons:** classes, abilities, server-authoritative
 combat, sprite art, gear tiers, leveling/boon system (§10).
 
+**Branching side chambers — first exploration content, shipped
+2026-08-23.** Sherwood Approach's room 1 now forks: clear it and two
+gates appear instead of auto-advancing — continue on, or take an
+optional detour into a tougher fight with guaranteed loot, clearly
+warned as the harder road before committing. Both routes reconverge at
+room 2. Currently just the one chamber in the one dungeon actually being
+played (§12 Phase 1's "prove it on one dungeon" pattern) — extending the
+same pattern to the other 3 dungeons, and to more than one branch per
+dungeon, is unstarted. **This is optional extra risk a player chooses,
+not the mandatory wipe condition Pillar 5 below is actually asking for**
+— the main path is exactly as failure-free as it always was.
+
 **A run has to be able to fail — added 2026-08-23, see Pillar 5.** Right
 now there's no wipe condition at all: dying just costs a brief respawn
 (spawn protection covers the walk back in), and a dungeon can't actually
@@ -620,6 +636,9 @@ as-is regardless of the run-model change)*
   loadout locks for a whole run or can be re-picked, how it interacts
   with gear/boons, and whether to retrofit the 4 existing classes or only
   build it for classes added from Enchanter onward
+- Extending branching side chambers (§9) beyond Sherwood Approach's one
+  chamber — same pattern for the other 3 dungeons, and whether any
+  dungeon should get more than one branch
 - Exact level thresholds per dungeon (§5)
 - What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
