@@ -19,7 +19,8 @@
 const { WebSocketServer } = require('ws');
 const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
 
-const PORT = process.env.PORT || 8081;
+const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
+const HOST = '0.0.0.0';                // must bind all interfaces, not just localhost, for Railway
 const W = 1000, H = 750;
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
@@ -69,7 +70,7 @@ loadRoom(0);
 const clients = new Map(); // playerId -> ws
 let nextPlayerId = 1;
 
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ port: PORT, host: HOST });
 
 wss.on('connection', (ws) => {
   const id = 'p' + (nextPlayerId++);
@@ -448,4 +449,4 @@ setInterval(()=>{
   broadcastState();
 }, TICK_MS);
 
-console.log(`Quest for Camelot server listening on ws://localhost:${PORT}`);
+console.log(`Quest for Camelot server listening on ws://${HOST}:${PORT}`);

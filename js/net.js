@@ -6,9 +6,11 @@
 // combat, and monster AI are all server-side; this file only relays input
 // out and state in.
 
-const SERVER_URL = "ws://localhost:8081";
-// Same-machine testing only. To test from a second device on the LAN, point
-// this at the server machine's LAN IP instead, e.g. "ws://192.168.1.23:8081".
+const SERVER_URL = "ws://localhost:3000";
+// Same-machine testing only, matching the server's local-dev fallback port
+// (process.env.PORT || 3000). To test from a second device on the LAN, point
+// this at the server machine's LAN IP instead, e.g. "ws://192.168.1.23:3000".
+// Once deployed (e.g. on Railway), this should point at the deployed wss:// URL.
 
 let ws = null;
 let myId = null;
