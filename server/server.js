@@ -135,6 +135,7 @@ function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 
 function loadRoom(idx){
   roomIndex = idx;
+  branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
   if(idx === 1) dungeonStartedAt = Date.now(); // idx 0 is always the safe room — the real run starts on leaving it
   const dungeon = currentDungeon();
   const room = dungeon.rooms[idx];
@@ -158,6 +159,24 @@ function loadRoom(idx){
 // the existing spawn-point/loot-pickup proximity checks, not a new
 // mechanic. See tickSafeRoom().
 const SAFE_EXIT_X = W - 100, SAFE_EXIT_Y = H / 2, SAFE_EXIT_RADIUS = 50;
+
+// Branching side chamber (currently only Sherwood Approach defines a
+// `sideChamber` — see js/data.js). Same trigger-zone shape as the safe
+// room's exit, just three of them: a fork (main path vs. the harder,
+// better-loot detour) and a single return spot once the detour's cleared.
+// null | 'awaiting_choice' | 'in_side_chamber' | 'side_cleared_awaiting_return'
+let branchState = null;
+const BRANCH_MAIN_EXIT = { x: W - 100, y: H / 2 - 90, r: 45 };
+const BRANCH_SIDE_EXIT = { x: W - 100, y: H / 2 + 90, r: 45 };
+const BRANCH_RETURN_EXIT = { x: W - 100, y: H / 2, r: 45 };
+
+function someoneAt(spot){
+  return Object.values(players).some(p => !p.dead && Math.hypot(p.x - spot.x, p.y - spot.y) < spot.r);
+}
+
+function advanceToNextRoom(){
+  if(roomIndex + 1 < currentDungeon().rooms.length) loadRoom(roomIndex + 1);
+}
 
 loadRoom(0);
 
@@ -506,7 +525,9 @@ function hitMonster(mon, dmg, killerId){
 }
 
 function dropLoot(mon){
-  if(mon.boss || Math.random() < 0.35){
+  // Guaranteed drop inside a side chamber — that's the whole point of the
+  // harder detour (see js/data.js's sideChamber.warningText).
+  if(mon.boss || branchState === 'in_side_chamber' || Math.random() < 0.35){
     loot.push({ id: 'l' + (++lootSeq), x: mon.x, y: mon.y, taken: false });
   }
 }
@@ -566,6 +587,47 @@ function tickSafeRoom(){
   }
   waitingForFamily = false;
   loadRoom(1);
+}
+
+// Same shape as loadRoom(), but for the optional side chamber — doesn't
+// touch roomIndex, so the main path's position is preserved for the trip
+// back (see tickBranch()'s 'side_cleared_awaiting_return' case).
+function loadSideChamber(){
+  for(const id in monsters) delete monsters[id];
+  loot = [];
+  const sc = currentDungeon().sideChamber;
+  sc.enemies.forEach(e=>{
+    const t = ENEMY_TYPES[e.type];
+    const id = 'm' + (++monsterSeq);
+    monsters[id] = Object.assign({}, t, {
+      id, type: e.type, x: e.x, y: e.y, hp: t.hp, maxHp: t.hp, cd: 0,
+      slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
+      stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0
+    });
+  });
+  console.log(`[room] ${currentDungeon().name} — side chamber: ${sc.name} (${sc.enemies.length} monsters)`);
+}
+
+// Drives the fork once a `branch: true` room is cleared (see tickMonsters)
+// — awaiting_choice shows both gates; walking into the main one continues
+// exactly as any other room would, the side one detours into the harder,
+// guaranteed-loot chamber. Clearing that chamber opens a single return
+// gate leading to the same next room the main path would have reached.
+function tickBranch(){
+  if(branchState === 'awaiting_choice'){
+    if(someoneAt(BRANCH_MAIN_EXIT)){
+      branchState = null;
+      advanceToNextRoom();
+    } else if(someoneAt(BRANCH_SIDE_EXIT)){
+      branchState = 'in_side_chamber';
+      loadSideChamber();
+    }
+  } else if(branchState === 'side_cleared_awaiting_return'){
+    if(someoneAt(BRANCH_RETURN_EXIT)){
+      branchState = null;
+      advanceToNextRoom();
+    }
+  }
 }
 
 // ---------- MONSTER AI ----------
@@ -637,12 +699,20 @@ function tickMonsters(dt){
     }
   }
 
-  if(allDead && Object.keys(monsters).length > 0 && !currentRoom().boss && !advancing){
-    advancing = true;
-    setTimeout(()=>{
-      advancing = false;
-      if(roomIndex + 1 < currentDungeon().rooms.length) loadRoom(roomIndex + 1);
-    }, 1400);
+  if(allDead && Object.keys(monsters).length > 0 && !advancing){
+    if(branchState === 'in_side_chamber'){
+      branchState = 'side_cleared_awaiting_return'; // wait for a player to walk to the return gate — see tickBranch()
+    } else if(branchState === null && !currentRoom().boss){
+      if(currentRoom().branch){
+        branchState = 'awaiting_choice'; // fork: don't auto-advance, wait for a gate choice — see tickBranch()
+      } else {
+        advancing = true;
+        setTimeout(()=>{
+          advancing = false;
+          advanceToNextRoom();
+        }, 1400);
+      }
+    }
   }
 }
 
@@ -722,6 +792,12 @@ function broadcastState(){
     boss: !!currentRoom().boss,
     safe: !!currentRoom().safe,
     safeExit: { x: SAFE_EXIT_X, y: SAFE_EXIT_Y, r: SAFE_EXIT_RADIUS },
+    branch: branchState ? {
+      state: branchState,
+      mainExit: BRANCH_MAIN_EXIT,
+      sideExit: BRANCH_SIDE_EXIT,
+      returnExit: BRANCH_RETURN_EXIT
+    } : null,
     victory,
     waitingForFamily,
     players: Object.values(players),
@@ -748,6 +824,7 @@ setInterval(()=>{
     tickProjectiles(dt);
     tickLoot();
     tickSafeRoom();
+    tickBranch();
   }
   broadcastState();
 }, TICK_MS);

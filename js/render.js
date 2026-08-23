@@ -173,7 +173,38 @@ function checkRoomTransition(s){
   else showBanner(s.boss ? dungeon.bossIntroText : s.dungeonName);
 }
 
+// Same idea as checkRoomTransition, but for the branch fork — roomId
+// doesn't change while a party stands at the fork or explores the side
+// chamber (roomIndex is untouched, see server.js), so this needs its own
+// edge-trigger on branchState instead.
+let lastBranchState = null;
+function checkBranchTransition(s){
+  const state = s.branch ? s.branch.state : null;
+  if(state === lastBranchState) return;
+  lastBranchState = state;
+  if(state === 'awaiting_choice') showBanner("A fork in the path…");
+  else if(state === 'in_side_chamber'){
+    const dungeon = dungeonByName(s.dungeonName);
+    const sideChamber = dungeon && dungeon.sideChamber;
+    if(sideChamber) showBanner(sideChamber.name);
+  }
+}
+
 // ---------- DRAW ----------
+function drawGate(spot, [r, g, b], label){
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+  ctx.beginPath();
+  ctx.arc(spot.x, spot.y, spot.r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${r},${g},${b},${0.12 + 0.1 * pulse})`;
+  ctx.fill();
+  ctx.strokeStyle = `rgba(${r},${g},${b},${0.6 + 0.4 * pulse})`;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.font = "13px Georgia"; ctx.textAlign = "center";
+  ctx.fillText(label, spot.x, spot.y - spot.r - 10);
+  ctx.textAlign = "left";
+}
+
 function draw(s){
   ctx.clearRect(0, 0, W, H);
   if(!s) return;
@@ -205,22 +236,21 @@ function draw(s){
   ctx.fillRect(0, 0, W, 24); ctx.fillRect(0, H - 16, W, 16);
   ctx.fillRect(0, 0, 16, H); ctx.fillRect(W - 16, 0, 16, H);
 
-  // safe room exit — a pulsing gate of light the party walks into when ready
+  // Exit gates — a pulsing circle of light the party walks into to advance.
+  // Shared by the safe room's single exit and the branch fork's two/one
+  // gates, just with different colors/labels.
   if(s.safe && s.safeExit){
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-    ctx.beginPath();
-    ctx.arc(s.safeExit.x, s.safeExit.y, s.safeExit.r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(232,193,74,${0.12 + 0.1 * pulse})`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(232,193,74,${0.6 + 0.4 * pulse})`;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = "#e8c14a"; ctx.font = "13px Georgia"; ctx.textAlign = "center";
-    ctx.fillText(
-      s.waitingForFamily ? "Waiting for the whole family…" : "Enter when ready",
-      s.safeExit.x, s.safeExit.y - s.safeExit.r - 10
-    );
-    ctx.textAlign = "left";
+    drawGate(s.safeExit, [232, 193, 74], s.waitingForFamily ? "Waiting for the whole family…" : "Enter when ready");
+  }
+  if(s.branch){
+    const dungeon = dungeonByName(s.dungeonName);
+    const sideChamber = dungeon && dungeon.sideChamber;
+    if(s.branch.state === 'awaiting_choice'){
+      drawGate(s.branch.mainExit, [232, 193, 74], "Continue on");
+      drawGate(s.branch.sideExit, [212, 60, 45], sideChamber ? sideChamber.warningText : "A harder road");
+    } else if(s.branch.state === 'side_cleared_awaiting_return'){
+      drawGate(s.branch.returnExit, [232, 193, 74], "Return to the path");
+    }
   }
 
   // loot
@@ -363,6 +393,7 @@ function draw(s){
 function renderLoop(){
   if(state === 'game' && latestState){
     checkRoomTransition(latestState);
+    checkBranchTransition(latestState);
     updateHud(latestState);
     updateRoster(latestState);
     draw(latestState);

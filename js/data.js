@@ -74,9 +74,21 @@ const DUNGEONS = [
     floorColor: "#2f3b23", wallColor: "#1c2417",
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
+    // The Ambush Hollow — optional detour off room 1 (branch: true below).
+    // Tougher than that room's own bandit trio (two dark knights, not
+    // one, plus a bandit) in exchange for a guaranteed drop instead of
+    // the usual 35% chance — see server.js's dropLoot().
+    sideChamber: {
+      name: "The Ambush Hollow",
+      warningText: "A harder road — tougher foes wait, but the loot is worth it.",
+      enemies: [
+        {type:"darkKnight", x:450, y:220}, {type:"darkKnight", x:620, y:420},
+        {type:"bandit", x:350, y:480}
+      ]
+    },
     rooms: [
       { safe: true, enemies: [] },
-      { enemies: [
+      { branch: true, enemies: [
           {type:"bandit", x:420, y:200}, {type:"bandit", x:600, y:400},
           {type:"bandit", x:300, y:500}
         ]},
