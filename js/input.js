@@ -102,41 +102,57 @@ document.getElementById('btnSpecial2').addEventListener('click', ()=> queuedActi
 // get the same one-shot-per-press behavior keydown/click give for free.
 const GAMEPAD_DEADZONE = 0.3;
 const BTN_ATTACK = 0, BTN_SPECIAL1 = 1, BTN_SPECIAL2 = 2; // A, B, X on a standard mapping
-let gamepadConnected = false;
 let prevButtonsPressed = {};
+let lastLoggedGamepadId = null; // avoids re-logging "connected" every single poll
 
+// The 'gamepadconnected' event is unreliable in practice — Chrome in
+// particular often never fires it for a controller that was already plugged
+// in before the page loaded, only for one plugged in *after*, and even then
+// sometimes only once a button on it has actually been pressed. Gating the
+// poll loop behind that event (an earlier version of this file did) meant a
+// perfectly good, already-connected controller could just never be noticed.
+// Polling navigator.getGamepads() directly every frame has no such
+// dependency — it's always safe to call and simply returns empty slots when
+// nothing's connected, so that's the only thing this now relies on. The
+// event listeners below are kept purely for console visibility.
 window.addEventListener('gamepadconnected', e=>{
-  gamepadConnected = true;
   console.log(`[input] gamepad connected: ${e.gamepad.id}`);
 });
 window.addEventListener('gamepaddisconnected', e=>{
-  gamepadConnected = false;
   gamepadKeys.up = gamepadKeys.down = gamepadKeys.left = gamepadKeys.right = false;
   console.log(`[input] gamepad disconnected: ${e.gamepad.id}`);
 });
 
 function pollGamepad(){
-  if(gamepadConnected && navigator.getGamepads){
+  let gp = null;
+  if(navigator.getGamepads){
     const pads = navigator.getGamepads();
-    let gp = null;
     for(let i = 0; i < pads.length; i++){ if(pads[i]){ gp = pads[i]; break; } }
+  }
 
-    if(gp){
-      const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
-      const dpadLeft = !!(gp.buttons[14] && gp.buttons[14].pressed);
-      const dpadRight = !!(gp.buttons[15] && gp.buttons[15].pressed);
-      const dpadUp = !!(gp.buttons[12] && gp.buttons[12].pressed);
-      const dpadDown = !!(gp.buttons[13] && gp.buttons[13].pressed);
-
-      gamepadKeys.left = ax < -GAMEPAD_DEADZONE || dpadLeft;
-      gamepadKeys.right = ax > GAMEPAD_DEADZONE || dpadRight;
-      gamepadKeys.up = ay < -GAMEPAD_DEADZONE || dpadUp;
-      gamepadKeys.down = ay > GAMEPAD_DEADZONE || dpadDown;
-
-      checkButtonEdge(gp, BTN_ATTACK, 'attack');
-      checkButtonEdge(gp, BTN_SPECIAL1, 'special1');
-      checkButtonEdge(gp, BTN_SPECIAL2, 'special2');
+  if(gp){
+    if(gp.id !== lastLoggedGamepadId){
+      lastLoggedGamepadId = gp.id;
+      console.log(`[input] reading gamepad: ${gp.id}`);
     }
+
+    const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+    const dpadLeft = !!(gp.buttons[14] && gp.buttons[14].pressed);
+    const dpadRight = !!(gp.buttons[15] && gp.buttons[15].pressed);
+    const dpadUp = !!(gp.buttons[12] && gp.buttons[12].pressed);
+    const dpadDown = !!(gp.buttons[13] && gp.buttons[13].pressed);
+
+    gamepadKeys.left = ax < -GAMEPAD_DEADZONE || dpadLeft;
+    gamepadKeys.right = ax > GAMEPAD_DEADZONE || dpadRight;
+    gamepadKeys.up = ay < -GAMEPAD_DEADZONE || dpadUp;
+    gamepadKeys.down = ay > GAMEPAD_DEADZONE || dpadDown;
+
+    checkButtonEdge(gp, BTN_ATTACK, 'attack');
+    checkButtonEdge(gp, BTN_SPECIAL1, 'special1');
+    checkButtonEdge(gp, BTN_SPECIAL2, 'special2');
+  } else if(lastLoggedGamepadId !== null){
+    lastLoggedGamepadId = null;
+    gamepadKeys.up = gamepadKeys.down = gamepadKeys.left = gamepadKeys.right = false;
   }
   requestAnimationFrame(pollGamepad);
 }
