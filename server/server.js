@@ -16,6 +16,7 @@
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, victory}              every tick (20/s)
 
+const http = require('http');
 const { WebSocketServer } = require('ws');
 const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
 
@@ -70,7 +71,17 @@ loadRoom(0);
 const clients = new Map(); // playerId -> ws
 let nextPlayerId = 1;
 
-const wss = new WebSocketServer({ port: PORT, host: HOST });
+// A bare `new WebSocketServer({port, host})` creates its own internal HTTP
+// server that never responds to plain HTTP requests — it just leaves them
+// hanging. That's enough to fail a platform healthcheck (Railway included),
+// so we run our own tiny HTTP server instead and hand it to WebSocketServer
+// for the upgrade handshake, giving ordinary GETs a real 200 response.
+const httpServer = http.createServer((req, res)=>{
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Quest for Camelot server is running.\n');
+});
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(PORT, HOST);
 
 wss.on('connection', (ws) => {
   const id = 'p' + (nextPlayerId++);

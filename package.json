@@ -1,0 +1,9 @@
+{
+  "name": "mythological-legends-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Quest for Camelot. This root package.json exists only so Railway's build system detects a Node project at the repo root — the actual build/start commands live in railway.json, since the server (server/) needs its dependencies installed from server/package.json while still having the repo root (for js/data.js) in its build context.",
+  "scripts": {
+    "start": "node server/server.js"
+  }
+}
