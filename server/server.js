@@ -8,13 +8,28 @@
 // Run with: npm start   (from this directory)
 //
 // Message protocol (JSON; kept small and explicit, no binary framing yet):
+//   Connection URL: wss://host?passphrase=...&playerId=...
+//     playerId is a client-generated persistent ID (localStorage), not a
+//     per-socket one — reconnecting with a known playerId reattaches to the
+//     existing character instead of creating a new one. See RECONNECT below.
 //   Client -> Server
 //     {type:"join", classKey, name?}                                  one-time, picks a class
 //     {type:"input", keys:{up,down,left,right}, action:null|"attack"|"special1"|"special2"}
 //   Server -> Client
-//     {type:"welcome", id, roomId}                                    once, right after connecting
+//     {type:"welcome", id, roomId, resuming}          once, right after connecting;
+//                                                      resuming=true means an existing
+//                                                      character was reattached, so the
+//                                                      client should skip class-select
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, victory}              every tick (20/s)
+//
+// RECONNECT: players/clients are keyed by the client's persistent playerId,
+// not a per-socket counter. On disconnect a character isn't deleted — it
+// just sits in the world (still simulated, still targetable, not moving
+// since its held keys reset to none) until RECONNECT_GRACE_MS passes with no
+// reconnect, at which point it's actually removed. A new socket with the
+// same playerId within that window cancels the removal and takes over the
+// existing state (position, hp, gear, cooldowns) untouched.
 
 const http = require('http');
 const fs = require('fs');
@@ -38,6 +53,8 @@ const SPAWN_X = 100, SPAWN_Y = H / 2;
 const SPAWN_SPREAD = 24;   // small random offset so simultaneous joins don't stack on one pixel
 const SPAWN_GRACE = 3;     // seconds of damage immunity after a (re)join, so spawning into a
                             // room where monsters already drifted near spawn isn't a free kill
+
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; // how long a disconnected character survives before removal
 
 // ---------- AUTHORITATIVE STATE ----------
 const players = Object.create(null);    // playerId -> player state
@@ -76,8 +93,8 @@ function loadRoom(idx){
 loadRoom(0);
 
 // ---------- CONNECTIONS ----------
-const clients = new Map(); // playerId -> ws
-let nextPlayerId = 1;
+const clients = new Map();          // playerId -> ws (the live socket, if any, for that character)
+const reconnectTimers = new Map();  // playerId -> pending-removal timeout, only set while disconnected
 
 // ---------- STATIC CLIENT ----------
 // Serves the browser client (camelot-crawler.html, css/, js/ — all siblings
@@ -147,9 +164,25 @@ const wss = new WebSocketServer({
 });
 httpServer.listen(PORT, HOST);
 
-wss.on('connection', (ws) => {
-  const id = 'p' + (nextPlayerId++);
+wss.on('connection', (ws, req) => {
+  const requestedId = new URL(req.url, 'http://internal').searchParams.get('playerId');
+  // Defensive fallback for a client that somehow didn't send one — still
+  // works, just won't survive a refresh (no localStorage value to resend).
+  const id = (requestedId && requestedId.length <= 100) ? requestedId : 'anon_' + Math.random().toString(36).slice(2);
+
+  // A second connection for the same persistent id (duplicate tab, or a
+  // stale socket that hasn't noticed it's dead yet) takes over — close
+  // whichever socket was there before.
+  const priorWs = clients.get(id);
+  if(priorWs && priorWs !== ws && priorWs.readyState === 1 /* OPEN */) priorWs.close();
   clients.set(id, ws);
+
+  // Reconnecting within the grace window: cancel the pending removal.
+  if(reconnectTimers.has(id)){
+    clearTimeout(reconnectTimers.get(id));
+    reconnectTimers.delete(id);
+  }
+  const resuming = !!players[id];
 
   ws.on('message', (raw) => {
     let msg;
@@ -158,19 +191,32 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    delete players[id];
+    if(clients.get(id) !== ws) return; // a newer connection already replaced this one; nothing to do
     clients.delete(id);
-    console.log(`[disconnect] ${id}`);
+    const p = players[id];
+    if(!p){ console.log(`[disconnect] ${id}`); return; }
+    p.keys.up = p.keys.down = p.keys.left = p.keys.right = false; // stop it from walking into a wall forever
+    reconnectTimers.set(id, setTimeout(()=>{
+      delete players[id];
+      reconnectTimers.delete(id);
+      console.log(`[expired] ${id} removed after ${RECONNECT_GRACE_MS / 1000}s with no reconnect`);
+    }, RECONNECT_GRACE_MS));
+    console.log(`[disconnect] ${id} (grace period started)`);
   });
 
-  ws.send(JSON.stringify({ type: 'welcome', id, roomId: currentRoomId() }));
-  console.log(`[connect] ${id}`);
+  ws.send(JSON.stringify({ type: 'welcome', id, roomId: currentRoomId(), resuming }));
+  console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
 });
 
 function handleMessage(id, msg){
   if(!msg || typeof msg.type !== 'string') return;
 
   if(msg.type === 'join'){
+    // Refuse to clobber a *live* character (protects a reconnect from
+    // losing progress if the client redundantly re-sends "join"). A dead
+    // one is fair game — picking a class again after dying should start
+    // a fresh character, same as it always has.
+    if(players[id] && !players[id].dead) return;
     const classKey = CLASSES[msg.classKey] ? msg.classKey : 'squire';
     const c = CLASSES[classKey];
     players[id] = {

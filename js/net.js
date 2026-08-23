@@ -20,8 +20,24 @@ const isLocalHost = ['localhost', '127.0.0.1', ''].includes(location.hostname);
 const SERVER_URL = isLocalHost ? LOCAL_SERVER_URL : `wss://${location.host}`;
 console.log(`[net] ${isLocalHost ? 'local' : 'production'} mode — connecting to ${SERVER_URL}`);
 
+// A persistent identity for this browser, independent of any one WebSocket
+// connection — reconnecting with the same ID (wifi drop, refresh, backgrounded
+// tab) reattaches to the same character server-side instead of starting a
+// fresh one. Not tied to the passphrase or any account; just "this browser".
+const PLAYER_ID_KEY = 'camelot_player_id';
+function getOrCreatePlayerId(){
+  let id = localStorage.getItem(PLAYER_ID_KEY);
+  if(!id){
+    id = (crypto.randomUUID && crypto.randomUUID()) || `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(PLAYER_ID_KEY, id);
+  }
+  return id;
+}
+const PLAYER_ID = getOrCreatePlayerId();
+
 let ws = null;
 let myId = null;
+let resuming = false; // did this connection reattach to an existing character?
 let connStatus = "idle"; // "idle" | "connecting" | "open" | "closed"
 let latestState = null; // last {type:"state", ...} payload received
 
@@ -30,11 +46,13 @@ let latestState = null; // last {type:"state", ...} payload received
 // handshake itself (server/server.js's verifyClient), so there's no separate
 // "connect, then authenticate" step; a wrong phrase just fails to open.
 // Resolves true/false rather than throwing, so the caller can show an inline
-// error instead of an uncaught rejection.
+// error instead of an uncaught rejection. Resolves on the 'welcome' message
+// rather than 'open', so `resuming` is known by the time callers check it.
 function attemptConnect(passphrase){
   return new Promise((resolve)=>{
     connStatus = "connecting";
-    ws = new WebSocket(`${SERVER_URL}?passphrase=${encodeURIComponent(passphrase)}`);
+    const url = `${SERVER_URL}?passphrase=${encodeURIComponent(passphrase)}&playerId=${encodeURIComponent(PLAYER_ID)}`;
+    ws = new WebSocket(url);
     let settled = false;
     const settle = (ok)=>{ if(!settled){ settled = true; resolve(ok); } };
 
@@ -42,9 +60,8 @@ function attemptConnect(passphrase){
 
     ws.addEventListener('open', () => {
       connStatus = "open";
-      clearTimeout(timeout);
       console.log('[net] connected to', SERVER_URL);
-      settle(true);
+      // wait for 'welcome' below before settling — it carries `resuming`
     });
 
     ws.addEventListener('close', () => {
@@ -65,7 +82,10 @@ function attemptConnect(passphrase){
 
       if(msg.type === 'welcome'){
         myId = msg.id;
-        console.log('[net] welcome, id =', myId);
+        resuming = !!msg.resuming;
+        console.log(`[net] welcome, id = ${myId}${resuming ? ' (resuming existing character)' : ''}`);
+        clearTimeout(timeout);
+        settle(true);
       } else if(msg.type === 'state'){
         latestState = msg;
         if(typeof onStateUpdate === 'function') onStateUpdate(msg);

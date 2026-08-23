@@ -56,7 +56,11 @@ async function handleBeginQuest(){
   btnStart.textContent = 'Begin the Quest';
 
   if(ok){
-    showScreen('class');
+    // `resuming` means the server recognized this browser's persistent ID
+    // and reattached us to a character already in progress (refresh, brief
+    // wifi drop, backgrounded tab) — skip class-select and drop straight
+    // back into the game with gear/hp/position intact.
+    showScreen(resuming ? 'game' : 'class');
   } else {
     passphraseError.textContent = "That's not it — try again.";
     passphraseInput.select();
@@ -70,9 +74,10 @@ passphraseInput.addEventListener('keydown', e=>{
 
 document.getElementById('btnBack').addEventListener('click', ()=> showScreen('title'));
 document.getElementById('btnRestart').addEventListener('click', ()=> showScreen('title'));
-// Note: the server keeps this connection's player entry around (marked dead).
-// Picking a class again sends a fresh "join", which resets it server-side —
-// no reconnect needed, hence the ws.readyState check above.
+// Reaching "end" means this character is dead or the quest is won, so
+// picking a class again on the same connection sends a fresh "join" for a
+// brand-new character (server refuses to "join" over an existing live one —
+// that guard is what protects reconnects from losing progress).
 
 // ---------- REACT TO SERVER STATE ----------
 function onStateUpdate(s){
