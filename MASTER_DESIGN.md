@@ -133,17 +133,21 @@ turning into an unorganized pile.
 |---|---|---|---|---|---|
 | 1 | Sherwood Approach | Forest, tutorial | 1 (always open) | Black Knight of the Ford | TBD |
 | 2 | The Sunken Chapel | Flooded, undead | TBD | Green Knight | TBD |
-| 3 | Mordred's Keep | Dark, knights | TBD | A lieutenant of Mordred's (name TBD — see below) | TBD |
+| 3 | Mordred's Keep | Dark, knights | TBD | Mordred (or his lieutenant — see below) | TBD |
 | 4 | Avalon's Mist | Mystical | TBD | The Questing Beast | TBD |
-| 5 | **Camlann** | The final battle | Highest | **Mordred** (true final confrontation) | — |
+| 5 | **Camlann** *(proposed capstone — open decision)* | The final battle | Highest | **Mordred** (true final confrontation) | — |
 
-**Arc I climax: Camlann is the capstone (decided).** The Battle of Camlann
-(Arthur and Mordred's final, mutually fatal clash) is the legend's real
-climax, so it gets its own dungeon rather than folding into Mordred's
-Keep. The four existing dungeons stay as-is; Mordred's Keep (dungeon 3)
-becomes a fight against his forces/a lieutenant, not Mordred himself; the
-new 5th dungeon, Camlann, is the actual final confrontation. Preserves
-everything already built and gives the ending direct mythological weight.
+**Open story decision — where Arc I actually climaxes.** Mordred is
+currently dungeon 3's boss, but the Battle of Camlann (Arthur and Mordred's
+final, mutually fatal clash) is the legend's real climax. Two options:
+1. **Reorder** — make Mordred's Keep the last dungeon, Mordred the true
+   final boss, and move the Questing Beast to a mid-campaign or mini-boss
+   role instead.
+2. **Add Camlann as a capstone** *(leaning toward this)* — keep the four
+   existing dungeons as-is; Mordred's Keep becomes a fight against his
+   forces/a lieutenant; a new 5th dungeon, Camlann, is the actual final
+   confrontation with Mordred. Preserves everything already built and gives
+   the ending direct mythological weight.
 
 ### Arc II — The Fae Court *(new — Otherworld/fae folklore)*
 
@@ -223,15 +227,37 @@ exploring, not just a critical path to the dungeon boss.
 
 ## 7. Gear & Progression
 
-**Current:** four flat tiers (Iron → Steel → Silver → Excalibur Shard), each
-a damage-reduction multiplier, auto-upgraded on pickup. No player choice
-involved — purely a loot-luck ladder.
+**Current (as built):** one flat tier stat (Iron → Steel → Silver →
+Excalibur Shard) applying a single damage-reduction multiplier, auto-upgraded
+on pickup. No slots, no player choice — purely a loot-luck ladder.
 
-**Planned, once Phase 3 (below) lands:** gear tiers stay as the passive
-power ladder; a separate **in-run leveling system** (XP from kills → level
-up → choose 1 of 3 upgrade cards) becomes the active build-choice layer.
-The two systems coexist rather than merge — gear is "what you found,"
-levels are "what you chose."
+**New direction — three gear slots, decided:**
+
+| Slot | Structure | Effect | Example ladder/items |
+|---|---|---|---|
+| **Weapon** | Tiered ladder (own progression track) | Attack damage / range scaling | Iron Blade → Steel Blade → Silver Blade → **Excalibur** |
+| **Armor** | Tiered ladder (own progression track) | HP / damage-reduction scaling | Iron Mail → Steel Plate → Silver Plate → **Aegis of Avalon** |
+| **Artifact/Shield** | Curated unique named items, not a linear tier | Bespoke passive effect, one per item | *Round Table Shard* (Camlann), *Mab's Favor* (Fae Court), *Lambton Coil* (Isles & Legends) — idea bank, not committed |
+
+**Why Artifact is structured differently:** "artifact" implies something
+specific and story-connected, not a generic number. Tying named artifacts to
+specific bosses/arcs (§5) makes rare boss loot feel like a real reward
+rather than "tier 4 of the ladder" — and reinforces the persistent-campaign
+feel (§10) rather than undercutting it.
+
+**Excalibur is now a specific weapon**, not a name slapped on the top tier
+of everything — a more satisfying payoff on its own.
+
+**Persistence impact — matters now, before Phase 2 is built.** The player
+schema (§11) needs an `equipment: { weapon, armor, artifact }` object from
+the start rather than a single `gearTier` integer, since retrofitting this
+after Phase 2 ships would mean a data migration. Build it three-slot from
+day one even before all three slots have real loot tables behind them.
+
+**Coexists with in-run boons (§10):** boons stay temporary and per-run;
+gear (all three slots) stays permanent, exactly as before — this change
+only affects how many "permanent" tracks there are (three instead of one),
+not the gear/boon split itself.
 
 ---
 
@@ -257,10 +283,8 @@ the arena-vs-chambers question: chambers win.** Every dungeon keeps its
 room-to-room maze structure. Auto-attack + target-lock is the core combat
 input, shared across all classes. What changes from the current hand-placed
 build is that enemy density escalates as the party moves through the maze
-rather than each room having a fixed, identical enemy count every time.
-**Escalation driver (decided): kill-count primary, with a time-based cap as
-a safety net** — so a run can't stall forever camping easy kills instead of
-pushing forward.
+(time and/or kill-count driven — TBD) rather than each room having a fixed,
+identical enemy count every time.
 
 **Boss encounters trigger probabilistically at points during the run** —
 usually the dungeon's standard boss, rarely a named/rare variant with
@@ -279,6 +303,7 @@ layouts + spawn tables + boss rosters on the same engine.
 combat, sprite art, gear tiers, leveling/boon system (§10).
 
 **Open questions:**
+- Primary escalation driver: run time, kill count, or both?
 - Exact level thresholds per dungeon (§5).
 
 ---
@@ -302,11 +327,8 @@ permanent-character feel that's actually the point here.
 - **Temporary (per-run):** boons picked up mid-dungeon, offering the
   build-choice moment, cleared at the end of the run regardless of outcome.
 
-**XP sources (decided): all three, weighted.** A small amount per regular
-kill keeps XP flowing during a run; a large chunk on boss kill and a bonus
-on dungeon completion make those the moments that actually move the needle.
-
 **Open questions:**
+- What actually grants permanent XP — boss kills, dungeon completion, both?
 - Boon pool size/rarity — should mirror the "sometimes it's something
   special" feeling used for rare bosses (§9) and rare loot.
 
@@ -321,29 +343,30 @@ requires a real store.
 need for a separate managed Postgres service at family scale. Keyed by the
 existing persistent `playerId`.
 
-**Currency: one shared family pool (decided), not per-player.** Fits the
-"we're building this together" spirit better than internal competition —
-this is a family game, not four separate save files.
-
-**Proposed schema (draft, not committed):**
+**Schema (updated for the three-slot gear system, §7 — build this shape
+from day one, not the old single-tier version):**
 ```
 players
   id (playerId, primary key)
   name
-  best_wilds_time_seconds
+  level, xp
+  equipment (json — { weapon: tierId, armor: tierId, artifact: itemId|null })
+  currency          -- shared family pool, see below
+  best_run_time_seconds   -- per dungeon or overall, TBD
   total_kills
   total_deaths
   unlocks (json array — permanent unlock IDs)
   created_at, last_seen_at
-
-family
-  id (singleton row — always id=1)
-  currency
 ```
+
+**Decided:** shared family currency pool, not per-player — fits the
+"we're building this together" spirit better than individual competition
+(carried over from the earlier defaults discussion).
 
 **Open questions:**
 - What's actually worth unlocking? (New starting classes, cosmetic skins,
-  starting perks, Wilds arena variants — needs a real list, not just "TBD.")
+  starting perks, dungeon variants — needs a real list, not just "TBD.")
+- Is `best_run_time_seconds` tracked per-dungeon or as one overall record?
 
 ---
 
@@ -356,7 +379,8 @@ as-is regardless of the run-model change)*
 
 **Phase 2 — Persistence foundation**
 - [ ] Add SQLite + Railway volume
-- [ ] Schema + read/write wiring on connect/disconnect/key events
+- [ ] Schema (three-slot equipment shape, §7/§11) + read/write wiring on
+      connect/disconnect/key events
 
 **Phase 3 — Permanent leveling + in-run boons**
 - [ ] Permanent XP/level system (never resets)
@@ -369,6 +393,7 @@ as-is regardless of the run-model change)*
 - [ ] Boss-encounter trigger logic: probabilistic timing, standard vs.
       rare/named roll, weighted loot tied to which boss shows up
 - [ ] Level-gated dungeon unlock sequence (§5)
+- [ ] Weapon/Armor tier ladders + Artifact drop tables per dungeon/boss (§7)
 - [ ] Resolve remaining open questions in §9/§13 before starting
 
 **Phase 5 — Meta-progression**
@@ -376,9 +401,7 @@ as-is regardless of the run-model change)*
 - [ ] Permanent unlock catalog + purchase flow
 - [ ] Tie into persistence layer from Phase 2
 
-**Phase 6 — New classes** *(1-2 at a time, not all at once; Enchanter first
-— decided, most fully designed already and completes the trinity-plus-CC
-group immediately)*
+**Phase 6 — New classes** *(1-2 at a time, not all at once)*
 - [ ] Enchanter (CC)
 - [ ] Ranger
 - [ ] Bard
@@ -386,7 +409,8 @@ group immediately)*
 - [ ] Battle Conjurer (pet class)
 
 **Phase 7 — Arc expansion**
-- [ ] Finish Arc I: build Camlann as the true campaign finale (§5)
+- [ ] Finish Arc I: resolve the Camlann-vs-reorder decision (§5), build
+      the true campaign finale
 - [ ] Arc II (The Fae Court): Queen Mab / The Hollow Court as the anchor
       bonus dungeon; room for Titania/Oberon, Puck, the Wild Hunt later
 - [ ] Arc III (Isles & Legends): pick from the idea bank (Lambton Worm,
@@ -402,28 +426,25 @@ group immediately)*
 
 *Running list of things that need a call before the relevant phase starts.*
 
+- **Where Arc I climaxes** — reorder Mordred's Keep to be last, or add
+  Camlann as a 5th capstone dungeon (§5). Leaning toward Camlann.
+- Primary escalation driver: run time, kill count, or both? (§9)
 - Exact level thresholds per dungeon (§5)
+- What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
+- Per-player vs. per-family shared currency (§11)
 - Concrete unlock catalog for meta-progression (§11)
 - Rare/named boss roster per dungeon — who they are, what makes each one
   feel distinct beyond a stat bump (§5)
+- New-class rollout order within Phase 6 — which of the five first?
 - Queen Mab's actual boss mechanic, once her bonus dungeon is scoped (§5)
 - Which Arc III folklore figures to build first — full idea bank in §5
   isn't meant to all get built at once
+- Weapon/Armor tier names beyond the current sketch (§7)
+- Full Artifact catalog — which bosses drop which named item, and each
+  item's specific passive effect (§7)
 
 ### Decided (kept here for reference, not deleted once resolved)
-- Arc I climaxes at Camlann, a new 5th capstone dungeon, rather than
-  reordering Mordred's Keep to be last — Mordred's Keep (dungeon 3) fights
-  his forces/a lieutenant instead of Mordred himself (§5).
-- Escalation driver is kill-count primary, with a time-based cap as a
-  safety net against camping easy kills instead of pushing forward (§9).
-- Permanent XP comes from all three sources: a small amount per kill, a
-  large chunk on boss kill, a bonus on dungeon completion (§10).
-- Currency is one shared family pool, not per-player or per-character —
-  fits the "we're building this together" spirit over internal
-  competition (§11).
-- Enchanter is the first new class added in Phase 6 — most fully designed
-  already, and completes the trinity-plus-CC group immediately (§4, §12).
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
   early (§5).
 - Dungeons keep their maze/room structure — no flat open arenas (§9).
@@ -439,3 +460,8 @@ group immediately)*
 - Dungeons are organized into story arcs (Round Table / Fae Court / Isles
   & Legends / Mabinogion) rather than one flat list, confirmed as the
   structure for scaling well beyond five dungeons (§5).
+- Gear splits into three slots — Weapon and Armor as independent tiered
+  ladders, Artifact/Shield as curated unique named items tied to specific
+  bosses/arcs rather than a generic tier (§7). Persistence schema (§11)
+  built three-slot from the start.
+- Currency is a shared family pool, not per-player (§11).
