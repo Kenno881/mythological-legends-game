@@ -139,17 +139,11 @@ const ENEMY_TYPES = {
                  slamCd:3.5, slamRadius:150, slamDmg:38, slamTelegraph:0.9}
 };
 
-// ---------- CONNECTION GATE ----------
-// A lightweight filter, not real security: this file ships to the browser
-// as plain JS, so anyone can read this value from page source. It just
-// keeps random bots/scanners from connecting to the WebSocket server.
-// To change it: edit this line and redeploy — client and server both read
-// it from here, so there's nothing else to keep in sync.
-const SHARED_PASSPHRASE = "round-table";
-
 // Shared with the Node server (server/server.js) so class/enemy/dungeon stats
-// (and the passphrase above) live in exactly one place. No-op in the
-// browser, where `module` is undefined.
+// live in exactly one place. No-op in the browser, where `module` is
+// undefined. Deliberately does NOT include the connection passphrase — that
+// lives only in server.js, since this file ships to the browser as plain JS
+// and anyone can read it from page source.
 if(typeof module !== 'undefined' && module.exports){
-  module.exports = { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, SHARED_PASSPHRASE };
+  module.exports = { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES };
 }

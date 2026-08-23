@@ -20,10 +20,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, SHARED_PASSPHRASE } = require('../js/data.js');
+const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
 const HOST = '0.0.0.0';                // must bind all interfaces, not just localhost, for Railway
+
+// Server-only — deliberately NOT in js/data.js, which ships to the browser
+// as plain public JS. Override in Railway's dashboard (Variables tab) to set
+// a real passphrase for the deployed instance without it ever touching git
+// or public client code; the "round-table" fallback is just for local dev.
+const SHARED_PASSPHRASE = process.env.SHARED_PASSPHRASE || 'round-table';
 const W = 1000, H = 750;
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;

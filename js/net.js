@@ -22,38 +22,55 @@ console.log(`[net] ${isLocalHost ? 'local' : 'production'} mode — connecting t
 
 let ws = null;
 let myId = null;
-let connStatus = "connecting"; // "connecting" | "open" | "closed"
-let latestState = null;        // last {type:"state", ...} payload received
+let connStatus = "idle"; // "idle" | "connecting" | "open" | "closed"
+let latestState = null; // last {type:"state", ...} payload received
 
-function connect(){
-  connStatus = "connecting";
-  ws = new WebSocket(`${SERVER_URL}?passphrase=${encodeURIComponent(SHARED_PASSPHRASE)}`);
+// Doesn't connect until someone actually submits a passphrase (see main.js's
+// title-screen handler) — the passphrase check happens during the WebSocket
+// handshake itself (server/server.js's verifyClient), so there's no separate
+// "connect, then authenticate" step; a wrong phrase just fails to open.
+// Resolves true/false rather than throwing, so the caller can show an inline
+// error instead of an uncaught rejection.
+function attemptConnect(passphrase){
+  return new Promise((resolve)=>{
+    connStatus = "connecting";
+    ws = new WebSocket(`${SERVER_URL}?passphrase=${encodeURIComponent(passphrase)}`);
+    let settled = false;
+    const settle = (ok)=>{ if(!settled){ settled = true; resolve(ok); } };
 
-  ws.addEventListener('open', () => {
-    connStatus = "open";
-    console.log('[net] connected to', SERVER_URL);
-  });
+    const timeout = setTimeout(()=>{ ws.close(); settle(false); }, 8000);
 
-  ws.addEventListener('close', () => {
-    connStatus = "closed";
-    console.log('[net] disconnected');
-  });
+    ws.addEventListener('open', () => {
+      connStatus = "open";
+      clearTimeout(timeout);
+      console.log('[net] connected to', SERVER_URL);
+      settle(true);
+    });
 
-  ws.addEventListener('error', (e) => {
-    console.error('[net] socket error', e.message || e);
-  });
+    ws.addEventListener('close', () => {
+      connStatus = "closed";
+      clearTimeout(timeout);
+      console.log('[net] disconnected');
+      settle(false);
+    });
 
-  ws.addEventListener('message', (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
+    ws.addEventListener('error', (e) => {
+      console.error('[net] socket error', e.message || e);
+      // 'close' fires right after a failed handshake and settles the promise
+    });
 
-    if(msg.type === 'welcome'){
-      myId = msg.id;
-      console.log('[net] welcome, id =', myId);
-    } else if(msg.type === 'state'){
-      latestState = msg;
-      if(typeof onStateUpdate === 'function') onStateUpdate(msg);
-    }
+    ws.addEventListener('message', (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+
+      if(msg.type === 'welcome'){
+        myId = msg.id;
+        console.log('[net] welcome, id =', myId);
+      } else if(msg.type === 'state'){
+        latestState = msg;
+        if(typeof onStateUpdate === 'function') onStateUpdate(msg);
+      }
+    });
   });
 }
 
@@ -72,5 +89,3 @@ function myPlayer(){
   if(!latestState || !myId) return null;
   return latestState.players.find(p => p.id === myId) || null;
 }
-
-connect();

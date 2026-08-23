@@ -32,12 +32,47 @@ function joinAs(classKey){
   else console.warn('[main] not connected yet — try again in a moment');
 }
 
-document.getElementById('btnStart').addEventListener('click', ()=> showScreen('class'));
+// ---------- TITLE SCREEN: PASSPHRASE GATE ----------
+const btnStart = document.getElementById('btnStart');
+const passphraseInput = document.getElementById('passphraseInput');
+const passphraseError = document.getElementById('passphraseError');
+
+async function handleBeginQuest(){
+  // Already have a live connection (e.g. clicking through again after a
+  // death/victory "Return to Camelot") — no need to re-prompt or reconnect.
+  if(ws && ws.readyState === WebSocket.OPEN){
+    showScreen('class');
+    return;
+  }
+
+  const phrase = passphraseInput.value;
+  passphraseError.textContent = '';
+  btnStart.disabled = true;
+  btnStart.textContent = 'Knocking at the gate…';
+
+  const ok = await attemptConnect(phrase);
+
+  btnStart.disabled = false;
+  btnStart.textContent = 'Begin the Quest';
+
+  if(ok){
+    showScreen('class');
+  } else {
+    passphraseError.textContent = "That's not it — try again.";
+    passphraseInput.select();
+  }
+}
+
+btnStart.addEventListener('click', handleBeginQuest);
+passphraseInput.addEventListener('keydown', e=>{
+  if(e.key === 'Enter') handleBeginQuest();
+});
+
 document.getElementById('btnBack').addEventListener('click', ()=> showScreen('title'));
 document.getElementById('btnRestart').addEventListener('click', ()=> showScreen('title'));
 // Note: the server keeps this connection's player entry around (marked dead).
 // Picking a class again sends a fresh "join", which resets it server-side —
-// no reconnect needed.
+// no reconnect needed, hence the ws.readyState check above.
 
 // ---------- REACT TO SERVER STATE ----------
 function onStateUpdate(s){
