@@ -9,27 +9,36 @@
 //
 // Message protocol (JSON; kept small and explicit, no binary framing yet):
 //   Connection URL: wss://host?passphrase=...&playerId=...
-//     playerId is a client-generated persistent ID (localStorage), not a
-//     per-socket one — reconnecting with a known playerId reattaches to the
-//     existing character instead of creating a new one. See RECONNECT below.
+//     playerId, if present, must be one of the 5 reserved account ids
+//     (ACCOUNTS below) — set by the client only after a successful login,
+//     remembered in localStorage so a known device skips login on future
+//     connects. Omitted (or an unrecognized value) on a device that's
+//     never logged in — the connection is accepted but held pending until
+//     a "login" message succeeds. See ACCOUNTS/LOGIN below.
 //   Client -> Server
-//     {type:"join", classKey, name?}                                  one-time, picks a class
+//     {type:"login", username, pin}       only while the connection is pending (no id yet)
+//     {type:"ready", ready}               toggle this account's muster-ready state
+//     {type:"join", classKey}             one-time per account — ignored if the account
+//                                          already has a permanent classKey (§8a)
 //     {type:"input", keys:{up,down,left,right}, action:null|"attack"|"special1"|"special2"}
 //   Server -> Client
-//     {type:"welcome", id, roomId, resuming}          once, right after connecting;
-//                                                      resuming=true means an existing
-//                                                      character was reattached, so the
-//                                                      client should skip class-select
+//     {type:"loginResult", ok, accountId?, isNewClaim?, reason?}   reply to "login"
+//     {type:"welcome", id, roomId, resuming, classKey, isTest}     once, right after identity
+//                                                                  is established (immediately
+//                                                                  for a remembered device, or
+//                                                                  right after a successful login)
+//     {type:"muster", connected:[...], ready:[...]}   sent to any logged-in-but-not-yet-joined
+//                                                      socket whenever muster state changes
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, victory}              every tick (20/s)
 //
-// RECONNECT: players/clients are keyed by the client's persistent playerId,
-// not a per-socket counter. On disconnect a character isn't deleted — it
-// just sits in the world (still simulated, still targetable, not moving
-// since its held keys reset to none) until RECONNECT_GRACE_MS passes with no
-// reconnect, at which point it's actually removed. A new socket with the
-// same playerId within that window cancels the removal and takes over the
-// existing state (position, hp, gear, cooldowns) untouched.
+// RECONNECT: players/clients are keyed by the account id, not a per-socket
+// counter. On disconnect a character isn't deleted — it just sits in the
+// world (still simulated, still targetable, not moving since its held keys
+// reset to none) until RECONNECT_GRACE_MS passes with no reconnect, at
+// which point it's actually removed. A new socket with the same id within
+// that window cancels the removal and takes over the existing state
+// (position, hp, gear, cooldowns) untouched.
 
 const http = require('http');
 const fs = require('fs');
@@ -81,6 +90,23 @@ function pickSpawnPoint(){
 
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; // how long a disconnected character survives before removal
 
+// ---------- ACCOUNTS (MASTER_DESIGN.md §8a) ----------
+// Exactly 5 reserved account ids — the family's fixed 4-person roster plus
+// one solo QA account exempt from muster. No open self-registration: this
+// list is the actual access control (an unrecognized username is rejected
+// at login, same shape as the passphrase gate). PINs themselves are never
+// pre-assigned here — see server/db.js's verifyOrClaimPin, which lets each
+// account set its own PIN on first login rather than this file ever
+// handling/transmitting one.
+const ACCOUNTS = {
+  dad:    { name: 'Dad',    isTest: false },
+  mum:    { name: 'Mum',    isTest: false },
+  amelia: { name: 'Amelia', isTest: false },
+  declan: { name: 'Declan', isTest: false },
+  test:   { name: 'test',   isTest: true }
+};
+const FAMILY_IDS = Object.keys(ACCOUNTS).filter(id => !ACCOUNTS[id].isTest);
+
 // ---------- AUTHORITATIVE STATE ----------
 const players = Object.create(null);    // playerId -> player state
 const monsters = Object.create(null);   // monsterId -> monster state
@@ -122,6 +148,21 @@ loadRoom(0);
 // ---------- CONNECTIONS ----------
 const clients = new Map();          // playerId -> ws (the live socket, if any, for that character)
 const reconnectTimers = new Map();  // playerId -> pending-removal timeout, only set while disconnected
+
+// ---------- MUSTER (in-memory only — a "who's here right now" lobby, not
+// game progress, so nothing here is persisted or survives a restart) ----------
+// account id -> logged in but hasn't joined a character this session yet
+const musterConnected = new Set();
+// account id -> hit "Ready" — cleared on disconnect and once they actually join
+const musterReady = new Set();
+
+function broadcastMuster(){
+  const payload = JSON.stringify({ type: 'muster', connected: [...musterConnected], ready: [...musterReady] });
+  for(const id of musterConnected){
+    const ws = clients.get(id);
+    if(ws && ws.readyState === 1) ws.send(payload);
+  }
+}
 
 // ---------- STATIC CLIENT ----------
 // Serves the browser client (camelot-crawler.html, css/, js/ — all siblings
@@ -198,35 +239,84 @@ httpServer.listen(PORT, HOST);
 
 wss.on('connection', (ws, req) => {
   const requestedId = new URL(req.url, 'http://internal').searchParams.get('playerId');
-  // Defensive fallback for a client that somehow didn't send one — still
-  // works, just won't survive a refresh (no localStorage value to resend).
-  const id = (requestedId && requestedId.length <= 100) ? requestedId : 'anon_' + Math.random().toString(36).slice(2);
+  // Only trust a playerId from the URL if it's one of the 5 reserved
+  // accounts — this is what makes login actually mean something rather
+  // than the old "any random string is a valid identity" model. Anything
+  // else (missing, stale, tampered) falls through to the login-pending
+  // path below instead of being trusted outright.
+  const remembered = (requestedId && ACCOUNTS[requestedId.toLowerCase()]) ? requestedId.toLowerCase() : null;
+  let id = null; // set once identity is established — closures below read this live, not at registration time
 
-  // A second connection for the same persistent id (duplicate tab, or a
-  // stale socket that hasn't noticed it's dead yet) takes over — close
-  // whichever socket was there before.
-  const priorWs = clients.get(id);
-  if(priorWs && priorWs !== ws && priorWs.readyState === 1 /* OPEN */) priorWs.close();
-  clients.set(id, ws);
+  function finishConnect(boundId){
+    id = boundId;
 
-  db.touchOrCreatePlayer(id); // read-on-connect: creates the row on this id's first-ever connection, else bumps last_seen_at
+    // A second connection for the same account (duplicate tab, or a stale
+    // socket that hasn't noticed it's dead yet) takes over — close
+    // whichever socket was there before.
+    const priorWs = clients.get(id);
+    if(priorWs && priorWs !== ws && priorWs.readyState === 1 /* OPEN */) priorWs.close();
+    clients.set(id, ws);
 
-  // Reconnecting within the grace window: cancel the pending removal.
-  if(reconnectTimers.has(id)){
-    clearTimeout(reconnectTimers.get(id));
-    reconnectTimers.delete(id);
+    db.touchOrCreatePlayer(id); // read-on-connect: creates the row on this id's first-ever connection, else bumps last_seen_at
+
+    // Reconnecting within the grace window: cancel the pending removal.
+    if(reconnectTimers.has(id)){
+      clearTimeout(reconnectTimers.get(id));
+      reconnectTimers.delete(id);
+    }
+    const resuming = !!players[id];
+
+    // A resuming connection (already had a live character) skips muster
+    // entirely — muster is a per-session "everyone's here" lobby, not
+    // something re-triggered by every reconnect or in-run death/rejoin.
+    if(!resuming){
+      musterConnected.add(id);
+      broadcastMuster();
+    }
+
+    ws.send(JSON.stringify({
+      type: 'welcome', id, roomId: currentRoomId(), resuming,
+      classKey: db.getAccountClass(id), isTest: ACCOUNTS[id].isTest
+    }));
+    console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
   }
-  const resuming = !!players[id];
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    if(id === null){
+      // Not yet identified — the only message this socket will act on is
+      // a login attempt. Everything else is silently ignored rather than
+      // erroring, since a slow/racy client could plausibly queue an
+      // early message before login resolves.
+      if(msg.type !== 'login') return;
+      const attemptedId = typeof msg.username === 'string' ? msg.username.trim().toLowerCase() : '';
+      const pin = typeof msg.pin === 'string' ? msg.pin : '';
+      if(!ACCOUNTS[attemptedId] || !/^\d{4}$/.test(pin)){
+        ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: 'unknown_account' }));
+        return;
+      }
+      const result = db.verifyOrClaimPin(attemptedId, pin);
+      if(!result.ok){
+        ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: result.reason }));
+        return;
+      }
+      ws.send(JSON.stringify({ type: 'loginResult', ok: true, accountId: attemptedId, isNewClaim: result.isNewClaim }));
+      finishConnect(attemptedId);
+      return;
+    }
+
     handleMessage(id, msg);
   });
 
   ws.on('close', () => {
+    if(id === null) return; // never actually logged in — nothing was ever registered for this socket
     if(clients.get(id) !== ws) return; // a newer connection already replaced this one; nothing to do
     clients.delete(id);
+    musterConnected.delete(id);
+    musterReady.delete(id);
+    broadcastMuster();
     const p = players[id];
     if(!p){ console.log(`[disconnect] ${id}`); return; }
     db.savePlayerStats(p); // write-on-disconnect
@@ -239,23 +329,34 @@ wss.on('connection', (ws, req) => {
     console.log(`[disconnect] ${id} (grace period started)`);
   });
 
-  ws.send(JSON.stringify({ type: 'welcome', id, roomId: currentRoomId(), resuming }));
-  console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
+  if(remembered) finishConnect(remembered);
+  // else: connection stays open but pending — client is expected to send
+  // {type:"login", username, pin} next.
 });
 
 function handleMessage(id, msg){
   if(!msg || typeof msg.type !== 'string') return;
 
+  if(msg.type === 'ready'){
+    if(msg.ready) musterReady.add(id); else musterReady.delete(id);
+    broadcastMuster();
+    return;
+  }
+
   if(msg.type === 'join'){
     // Refuse to clobber a *live* character (protects a reconnect from
     // losing progress if the client redundantly re-sends "join"). A dead
-    // one is fair game — picking a class again after dying should start
-    // a fresh character, same as it always has.
+    // one is fair game — dying and rejoining starts a fresh character
+    // (position/hp/gear reset), same as it always has, but the class
+    // itself is now permanent per account (§8a) rather than re-picked.
     if(players[id] && !players[id].dead) return;
-    const classKey = CLASSES[msg.classKey] ? msg.classKey : 'squire';
+    const persistedClass = db.getAccountClass(id);
+    const classKey = (persistedClass && CLASSES[persistedClass]) ? persistedClass
+      : (CLASSES[msg.classKey] ? msg.classKey : 'squire');
+    if(!persistedClass) db.saveAccountClass(id, classKey); // first-ever join for this account — locks it in
     const c = CLASSES[classKey];
     const spawn = pickSpawnPoint();
-    const name = typeof msg.name === 'string' && msg.name.trim() ? msg.name.trim().slice(0, 20) : c.name;
+    const name = ACCOUNTS[id].name;
     players[id] = {
       id, classKey, name,
       x: spawn.x, y: spawn.y,
@@ -275,6 +376,7 @@ function handleMessage(id, msg){
       ...db.loadPlayerStats(id)
     };
     db.savePlayerStats(players[id]); // persist the resolved name even if stats themselves are unchanged
+    musterConnected.delete(id); musterReady.delete(id); broadcastMuster(); // no longer waiting in the lobby
     console.log(`[join] ${id} as ${classKey}`);
     return;
   }

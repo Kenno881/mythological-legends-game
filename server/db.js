@@ -40,12 +40,13 @@
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'camelot.json');
 console.log(`[db] DB_PATH resolved to: ${DB_PATH}`);
 
 function defaultState(){
-  return { players: {}, bestTimes: {}, family: { currency: 0, unlocks: [] } };
+  return { players: {}, accounts: {}, bestTimes: {}, family: { currency: 0, unlocks: [] } };
 }
 
 let state = defaultState();
@@ -53,6 +54,7 @@ let state = defaultState();
 try {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   state = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+  if(!state.accounts) state.accounts = {}; // back-compat: DB files written before accounts existed
   console.log(`[db] loaded existing state (${Object.keys(state.players || {}).length} known players)`);
 } catch (err) {
   if(err.code === 'ENOENT'){
@@ -143,6 +145,55 @@ function recordDungeonClear(dungeonName, seconds){
   persist();
 }
 
+// ---------- ACCOUNTS (MASTER_DESIGN.md §8a) ----------
+// PIN hashing uses Node's built-in crypto (scrypt), deliberately not a
+// native module like bcrypt — that's exactly the class of bug that broke
+// the Railway build earlier (better-sqlite3, see the top of this file).
+function hashPin(pin, salt){
+  return crypto.scryptSync(pin, salt, 64).toString('hex');
+}
+
+// Which of the 5 reserved account ids this actually is (display name,
+// whether it's the muster-exempt test account) is server.js's concern —
+// this file only stores/verifies credentials and the permanent class
+// choice, keyed by the same lowercased id server.js already validated
+// against its reserved-name list.
+function verifyOrClaimPin(id, pin){
+  let acct = state.accounts[id];
+  if(!acct){
+    acct = state.accounts[id] = { pinHash: null, pinSalt: null, classKey: null, createdAt: Date.now() };
+  }
+  if(!acct.pinHash){
+    // First-ever login for this account — the submitted PIN becomes its PIN.
+    const salt = crypto.randomBytes(16).toString('hex');
+    acct.pinSalt = salt;
+    acct.pinHash = hashPin(pin, salt);
+    acct.lastSeenAt = Date.now();
+    persist();
+    return { ok: true, isNewClaim: true };
+  }
+  const candidate = Buffer.from(hashPin(pin, acct.pinSalt), 'hex');
+  const stored = Buffer.from(acct.pinHash, 'hex');
+  const match = candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
+  if(!match) return { ok: false, reason: 'wrong_pin' };
+  acct.lastSeenAt = Date.now();
+  persist();
+  return { ok: true, isNewClaim: false };
+}
+
+// Permanent class choice for an account (MASTER_DESIGN.md §8a — chosen
+// once, remembered forever). Returns null until the account's first join.
+function getAccountClass(id){
+  const acct = state.accounts[id];
+  return acct ? acct.classKey : null;
+}
+
+function saveAccountClass(id, classKey){
+  const acct = state.accounts[id] || (state.accounts[id] = { pinHash: null, pinSalt: null, classKey: null, createdAt: Date.now() });
+  acct.classKey = classKey;
+  persist();
+}
+
 function getFamilyState(){
   return { currency: state.family.currency, unlocks: state.family.unlocks.slice() };
 }
@@ -157,5 +208,6 @@ function addFamilyCurrency(amount){
 
 module.exports = {
   touchOrCreatePlayer, loadPlayerStats, savePlayerStats,
-  recordDungeonClear, getFamilyState, addFamilyCurrency
+  recordDungeonClear, getFamilyState, addFamilyCurrency,
+  verifyOrClaimPin, getAccountClass, saveAccountClass
 };

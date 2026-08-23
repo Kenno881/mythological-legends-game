@@ -18,6 +18,29 @@
     <button class="btn" id="btnStart">Begin the Quest</button>
   </div>
 
+  <!-- LOGIN -->
+  <div id="screen-login" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Who's Playing?</div>
+    <div id="loginNames" class="class-grid login-grid"></div>
+
+    <div id="loginPinPanel" class="hidden">
+      <div class="subtitle" id="loginPinPrompt" style="margin-bottom:14px;"></div>
+      <input type="tel" inputmode="numeric" maxlength="4" id="pinInput" class="passphrase-input" placeholder="4-digit PIN" autocomplete="off">
+      <input type="tel" inputmode="numeric" maxlength="4" id="pinConfirmInput" class="passphrase-input hidden" placeholder="Confirm PIN" autocomplete="off">
+      <div class="passphrase-error" id="loginError"></div>
+      <button class="btn" id="btnPinSubmit">Enter</button>
+      <button class="btn secondary" id="btnLoginBack">Back</button>
+    </div>
+  </div>
+
+  <!-- MUSTER -->
+  <div id="screen-muster" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Gather the Party</div>
+    <div class="subtitle">Everyone ready up to begin the quest together.</div>
+    <div id="musterList"></div>
+    <button class="btn" id="btnReady">I'm Ready!</button>
+  </div>
+
   <!-- CLASS SELECT -->
   <div id="screen-class" class="screen hidden">
     <div class="title-plate" style="font-size:26px;">Choose Your Champion</div>
