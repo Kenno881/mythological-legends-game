@@ -45,6 +45,13 @@ beyond the session they happen in.
    structures (a new dungeon entry, a new enemy type) before it justifies new
    engine code. Keep the class/enemy/dungeon tables as the single source of
    truth shared between server and client (`js/data.js`).
+5. **Real risk of not succeeding — added 2026-08-23.** A dungeon has to be
+   an actual challenge, not a guaranteed win with extra steps — the family
+   should be able to fail a run. Not impossible, though: difficulty should
+   sit in a band where losing occasionally is part of the fun, not a wall
+   that stops a young child from ever finishing. Concrete mechanics (a real
+   wipe/fail state, difficulty tuning, what "failing" even means for a
+   world that currently has no wipe condition at all) are open — see §9.
 
 ---
 
@@ -378,9 +385,20 @@ layouts + spawn tables + boss rosters on the same engine.
 **Shares across all dungeons:** classes, abilities, server-authoritative
 combat, sprite art, gear tiers, leveling/boon system (§10).
 
+**A run has to be able to fail — added 2026-08-23, see Pillar 5.** Right
+now there's no wipe condition at all: dying just costs a brief respawn
+(spawn protection covers the walk back in), and a dungeon can't actually
+be lost. That's not really a "challenge" — it's a inconvenience. Needs a
+real fail state before this pillar is true rather than aspirational; see
+Open questions below.
+
 **Open questions:**
 - Primary escalation driver: run time, kill count, or both?
 - Exact level thresholds per dungeon (§5).
+- What "failing a dungeon" actually means mechanically — a full-party
+  wipe kicks everyone back to town/the safe room and the run resets? A
+  death limit (e.g. 3 party deaths and the run ends)? A timer that can run
+  out? Needs picking before Pillar 5 is more than a stated goal.
 
 ---
 
@@ -407,6 +425,50 @@ permanent-character feel that's actually the point here.
 - What actually grants permanent XP — boss kills, dungeon completion, both?
 - Boon pool size/rarity — should mirror the "sometimes it's something
   special" feeling used for rare bosses (§9) and rare loot.
+
+---
+
+## 10a. Skill Loadouts — Choose 4 of 8, Controller-Style (New Direction, Planning Stage)
+
+**Proposed 2026-08-23.** Each class gets a pool of **8 skills total**, of
+which **4 are equipped at once** — chosen at the start of a dungeon
+(naturally fits the safe room, §8a: pick your loadout before walking
+through the exit gate). Same shape as a modern controller-style
+ability bar (four face buttons), not the current fixed
+attack/special1/special2 kit every class has today.
+
+**Loadout composition — must include one of each:**
+- **Main attack** — the class's primary damage skill.
+- **Utility** — crowd control, mobility, a debuff, etc. (Mesmerize and
+  Taunt are already this shape).
+- **Ultimate** — a big, cooldown-gated payoff skill.
+- **A fourth, more open slot** — exact category TBD; could be a second
+  utility, a defensive skill, or left as a free pick from whatever's left
+  in the pool. Needs deciding once real skill pools exist to choose from.
+
+**UI:** the four equipped skills show at the bottom of the screen with
+their bound input shown directly on each icon — extends the existing
+attack/special1/special2 button row (`camelot-crawler.html`'s
+`#controls`) to four slots instead of the current three, both for the
+on-screen touch buttons and the keyboard/gamepad hints shown alongside
+them.
+
+**Scale note:** this roughly quadruples the ability-design surface per
+class — 8 skills instead of the current 2 specials, times 5 classes (and
+growing, §4/Phase 6) — plus the loadout-selection UI itself. Real content
+work, not a quick extension; likely its own phase rather than a drop-in
+addition to an existing one.
+
+**Open questions:**
+- Exact 4th-slot category (see above).
+- Whether loadout choice is locked for the whole dungeon run or can be
+  re-picked between dungeons/rooms.
+- How this interacts with the existing gear/boon systems (§7, §10) —
+  does a boon ever unlock or swap a skill mid-run, or stay purely
+  stat-based?
+- Retrofitting the 4 existing classes' current 2-special kits into an
+  8-skill pool each, vs. only building this for classes added from here
+  on (Enchanter onward).
 
 ---
 
@@ -551,6 +613,13 @@ as-is regardless of the run-model change)*
 - **Where Arc I climaxes** — reorder Mordred's Keep to be last, or add
   Camlann as a 5th capstone dungeon (§5). Leaning toward Camlann.
 - Primary escalation driver: run time, kill count, or both? (§9)
+- What "failing a dungeon" means mechanically — wipe condition, death
+  limit, timer? Nothing currently stops a run from being unlosable (§2
+  Pillar 5, §9)
+- Skill loadouts (§10a): the 4th loadout slot's category, whether a
+  loadout locks for a whole run or can be re-picked, how it interacts
+  with gear/boons, and whether to retrofit the 4 existing classes or only
+  build it for classes added from Enchanter onward
 - Exact level thresholds per dungeon (§5)
 - What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
