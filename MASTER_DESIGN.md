@@ -52,9 +52,14 @@ beyond the session they happen in.
 
 ### Working and deployed
 - Node/`ws` server, 20Hz authoritative tick, deployed on Railway.
-- Passphrase gate on the WebSocket connection.
-- Persistent `playerId` + reconnect grace window (`RECONNECT_GRACE_MS`) —
-  survives a refresh or brief disconnect, not a server restart.
+- Passphrase gate on the WebSocket connection, remembered client-side.
+- Real login — 5 reserved accounts (Dad, Mum, Amelia, Declan + a
+  muster-exempt `test` account), 4-digit PIN self-set on first login,
+  remembered per-device thereafter. Permanent per-account class choice.
+  Party muster screen gates entry until all 4 family accounts are ready.
+- Persistent identity (account id) + reconnect grace window
+  (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
+  server restart.
 - Spawn protection on join/reconnect.
 - Roster HUD (party HP at a glance).
 - Four classes, four full dungeons with named bosses (see §4, §5).
@@ -66,7 +71,7 @@ beyond the session they happen in.
   casts, boss slam telegraph, victory/defeat stingers (`js/audio.js`).
 - SQLite-shaped persistence (a JSON file, not actual SQL — see §11) on a
   Railway volume — lifetime kill/death counts and per-dungeon best times
-  survive a restart, still keyed by the old anonymous `playerId`.
+  survive a restart, keyed by account id.
 - Taunt as a hard target-override (not yet a full accumulating threat table).
 - Flat loot drop (35% per kill, 100% from bosses) — no rarity tiers yet.
 
@@ -80,8 +85,9 @@ beyond the session they happen in.
 ### Not started (new direction)
 - The Wilds (horde mode).
 - In-run leveling + upgrade-card choices.
-- Persistent accounts (currency, permanent unlocks, best times) — nothing
-  currently survives a server restart.
+- Currency/unlocks meta-progression — the persistence and account layer
+  now exist (§12 Phase 2, done 2026-08-23), but nothing in-game earns
+  currency or has anything to unlock yet.
 - Enchanter / crowd-control class (Mesmerize, group Haste) — discussed,
   not built.
 
@@ -454,24 +460,29 @@ as-is regardless of the run-model change)*
       kills/deaths and per-dungeon best times; `level`/`xp`/`equipment`
       and family currency/unlocks are schema-ready but unwired, no
       in-game mechanic produces them yet)*
-- [ ] Schema per §11 (accounts, characters, family_progress tables) —
-      build with login/accounts from the start, not the old anonymous
-      device-ID approach
-- [ ] Login flow: username + PIN (hashed), remembered client-side after
-      first login on a device (same reconnect-style UX as before, just
-      keyed to the account)
-- [ ] One-time character creation immediately after first login (name +
-      class, both permanent — decided, §8a)
-- [ ] Party "muster" staging screen before entering any dungeon — shows
-      who's logged in, character/class/level, a Ready toggle. Must be as
-      simple as gameplay itself; this is what "kids jump in on their own"
-      depends on.
+- [x] Login flow: username + PIN, remembered client-side after first
+      login on a device *(done 2026-08-23 — scoped to exactly 5 reserved
+      accounts, Dad/Mum/Amelia/Declan + a muster-exempt `test` account,
+      not open self-registration; PIN hashed with Node's built-in crypto
+      (scrypt), not bcrypt, to avoid another native-module Railway build
+      failure. `equipment`/full `accounts`+`characters`+`family_progress`
+      table split from §11 not built — the existing flat `players` JSON
+      store just gained an `accounts` section keyed the same way)*
+- [x] One-time character creation immediately after first login (name +
+      class, both permanent) *(done 2026-08-23 — name comes from the
+      account, not typed; class is chosen once and never re-picked, even
+      after death)*
+- [x] Party "muster" staging screen before entering any dungeon *(done
+      2026-08-23, simplified: applies every session rather than only
+      first clears, no per-dungeon `firstCleared` tracking yet — see
+      Open Decisions)*
 - [ ] `firstCleared` flag per dungeon (family-wide) — gates the full-party
       (all four accounts) requirement on first clears only; already-cleared
-      dungeons allow any subset
+      dungeons allow any subset *(deferred — muster currently requires all
+      four every session, not just first clears)*
 - [ ] Admin flag on Ken's account, gating a direct level-set action for
-      catch-up
-- [ ] Remember the connection passphrase client-side too, alongside the
+      catch-up *(deferred — nothing to level yet, Phase 3 isn't built)*
+- [x] Remember the connection passphrase client-side too, alongside the
       logged-in account, so kids aren't retyping either credential each
       session
 
@@ -535,8 +546,13 @@ as-is regardless of the run-model change)*
 - Weapon/Armor tier names beyond the current sketch (§7)
 - Full Artifact catalog — which bosses drop which named item, and each
   item's specific passive effect (§7)
-- PIN length/format and recovery flow (§8a)
+- PIN recovery flow — if a kid forgets it, currently the only fix is
+  manually editing the persisted JSON file; no admin-reset UI exists yet
+  (§8a)
 - Whether the roster could ever grow past four (§8a)
+- Whether muster's "all four ready, every session" rule (§8a, shipped
+  2026-08-23) should loosen to "first clear only" once it's actually been
+  played a few times, per §12 Phase 2's original `firstCleared` plan
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
@@ -563,5 +579,13 @@ as-is regardless of the run-model change)*
   list, the four family logins are the roster (§8a).
 - Real login (username + PIN, hashed) replaces the old anonymous
   device-based identity, so any family member gets their own persistent
-  character from any device (§8a).
-- Class choice is permanent once a character is created — no respec (§8a).
+  character from any device (§8a). **Shipped 2026-08-23.**
+- Class choice is permanent once a character is created — no respec
+  (§8a). **Shipped 2026-08-23.**
+- PIN format: 4 digits, numeric, self-set by each account on its own
+  first login rather than pre-assigned (§8a, decided 2026-08-23).
+- Muster requires all four family accounts ready before entering the
+  dungeon, applied every session for now rather than only first clears —
+  simpler to get right for the near-term deadline; loosening it to
+  match §12's original `firstCleared`-only plan is an easy later
+  follow-up (§8a, decided 2026-08-23).
