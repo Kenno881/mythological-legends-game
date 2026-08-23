@@ -438,11 +438,22 @@ separate copies of the same shared state.
 
 **Phase 1 — Sprite/loot/sound cleanup** *(nearly done, still worth finishing
 as-is regardless of the run-model change)*
-- [ ] Remaining 7 monster sprites + Iron gear icon
-- [ ] Sound pass (Web Audio API, synthesized — no external assets needed)
+- [x] Iron gear icon *(done 2026-08-23)*
+- [ ] Remaining 7 monster sprites — batch prompts prepped
+      (`tools/enemy-requests.json`), blocked on running the Gemini
+      generation with a valid API key
+- [x] Sound pass (Web Audio API, synthesized — no external assets needed)
+      *(done 2026-08-23, `js/audio.js`)*
 
 **Phase 2 — Persistence, accounts & party foundation**
-- [ ] Add SQLite + Railway volume
+- [x] Persistence layer + Railway volume *(done 2026-08-23 — plain JSON
+      file, not SQLite: better-sqlite3's native build failed on Railway's
+      Nixpacks/Node 18 image, not worth fighting for a dependency this
+      project doesn't need the query power of. Still keyed by the
+      existing anonymous `playerId`, not accounts yet — tracks lifetime
+      kills/deaths and per-dungeon best times; `level`/`xp`/`equipment`
+      and family currency/unlocks are schema-ready but unwired, no
+      in-game mechanic produces them yet)*
 - [ ] Schema per §11 (accounts, characters, family_progress tables) —
       build with login/accounts from the start, not the old anonymous
       device-ID approach
