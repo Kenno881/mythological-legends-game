@@ -62,7 +62,8 @@ beyond the session they happen in.
   server restart.
 - Spawn protection on join/reconnect.
 - Roster HUD (party HP at a glance).
-- Four classes, four full dungeons with named bosses (see §4, §5).
+- Five classes (added Enchanter, 2026-08-23 — the first Phase 6 class),
+  four full dungeons with named bosses (see §4, §5).
 - AI-generated sprite art for every class, monster, and gear tier, via a
   Gemini-image → `tools/process-sprites.js` (flood-fill background removal,
   auto-trim, resize) pipeline. Fallback to colored circles for anything
@@ -88,8 +89,8 @@ beyond the session they happen in.
 - Currency/unlocks meta-progression — the persistence and account layer
   now exist (§12 Phase 2, done 2026-08-23), but nothing in-game earns
   currency or has anything to unlock yet.
-- Enchanter / crowd-control class (Mesmerize, group Haste) — discussed,
-  not built.
+- Ranger / Bard / Rogue / Battle Conjurer — remaining Phase 6 classes,
+  not built (Enchanter shipped 2026-08-23, see Working and deployed above).
 
 ---
 
@@ -506,7 +507,8 @@ as-is regardless of the run-model change)*
 - [ ] Tie into persistence layer from Phase 2
 
 **Phase 6 — New classes** *(1-2 at a time, not all at once)*
-- [ ] Enchanter (CC)
+- [x] Enchanter (CC) *(done 2026-08-23 — Mesmerize single-target hard CC,
+      breaks on damage taken; Group Haste party speed buff)*
 - [ ] Ranger
 - [ ] Bard
 - [ ] Rogue
@@ -539,7 +541,9 @@ as-is regardless of the run-model change)*
 - Concrete unlock catalog for meta-progression (§11)
 - Rare/named boss roster per dungeon — who they are, what makes each one
   feel distinct beyond a stat bump (§5)
-- New-class rollout order within Phase 6 — which of the five first?
+- New-class rollout order within Phase 6 for the *remaining* four
+  (Ranger, Bard, Rogue, Battle Conjurer) — Enchanter went first, decided
+  and shipped 2026-08-23
 - Queen Mab's actual boss mechanic, once her bonus dungeon is scoped (§5)
 - Which Arc III folklore figures to build first — full idea bank in §5
   isn't meant to all get built at once
