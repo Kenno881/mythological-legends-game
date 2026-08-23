@@ -48,10 +48,10 @@ const CLASSES = {
 
 // ---------- DATA: GEAR TIERS ----------
 const GEAR_TIERS = [
-  {name:"Iron",   mult:1.0,  color:"#9a9a92"},
-  {name:"Steel",  mult:1.35, color:"#c7d3de"},
-  {name:"Silver", mult:1.75, color:"#dfe6ee"},
-  {name:"Excalibur Shard", mult:2.4, color:"#e8c14a"}
+  {name:"Iron",   mult:1.0,  color:"#9a9a92"}, // no icon yet — gear_tier_iron.png hasn't been dropped in
+  {name:"Steel",  mult:1.35, color:"#c7d3de", sprite:"assets/sprites/gear_tier_steel.png"},
+  {name:"Silver", mult:1.75, color:"#dfe6ee", sprite:"assets/sprites/gear_tier_silver.png"},
+  {name:"Excalibur Shard", mult:2.4, color:"#e8c14a", sprite:"assets/sprites/gear_tier_excalibur.png"}
 ];
 
 // ---------- DATA: DUNGEONS ----------
@@ -127,10 +127,13 @@ const DUNGEONS = [
 
 // ---------- DATA: ENEMY TYPES ----------
 const ENEMY_TYPES = {
-  bandit:       {hp:38,  speed:110, dmg:8,  radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15},
-  darkKnight:   {hp:70,  speed:95,  dmg:13, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3},
+  bandit:       {hp:38,  speed:110, dmg:8,  radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15,
+                 sprite:"assets/sprites/bandit.png"},
+  darkKnight:   {hp:70,  speed:95,  dmg:13, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
+                 sprite:"assets/sprites/darkknight.png"},
   blackKnight:  {hp:420, speed:80,  dmg:20, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
-                 slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1},
+                 slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
+                 sprite:"assets/sprites/blackknightboss.png"},
   zombie:       {hp:55,  speed:70,  dmg:10, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15},
   wraith:       {hp:28,  speed:155, dmg:9,  radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15},
   greenKnight:  {hp:500, speed:92,  dmg:18, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,

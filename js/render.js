@@ -13,19 +13,39 @@ function dungeonByName(name){
   return DUNGEONS.find(d => d.name === name) || null;
 }
 
-// ---------- CHARACTER SPRITES ----------
-// Preloaded once at startup. A class with no `sprite` entry (or one that
-// hasn't finished loading yet) just falls back to the plain colored circle
-// this game always drew — nothing breaks while art is still in progress.
-const characterSprites = {};
-Object.entries(CLASSES).forEach(([key, c])=>{
-  if(!c.sprite) return;
+// ---------- SPRITES ----------
+// Preloaded once at startup from CLASSES/ENEMY_TYPES/GEAR_TIERS's `sprite`
+// fields. Anything with no `sprite` entry (or one that hasn't finished
+// loading yet) just falls back to the plain colored shape this game always
+// drew — nothing breaks while art is still in progress for a given class,
+// monster, or gear tier.
+function loadSprites(table){
+  const cache = {};
+  Object.entries(table).forEach(([key, entry])=>{
+    if(!entry.sprite) return;
+    const img = new Image();
+    img.src = entry.sprite;
+    cache[key] = img;
+  });
+  return cache;
+}
+function readySprite(cache, key){
+  const img = cache[key];
+  return (img && img.complete && img.naturalWidth > 0) ? img : null;
+}
+
+const characterSprites = loadSprites(CLASSES);
+const monsterSprites = loadSprites(ENEMY_TYPES);
+const gearSprites = GEAR_TIERS.map(t => {
+  if(!t.sprite) return null;
   const img = new Image();
-  img.src = c.sprite;
-  characterSprites[key] = img;
+  img.src = t.sprite;
+  return img;
 });
-function spriteFor(classKey){
-  const img = characterSprites[classKey];
+function spriteFor(classKey){ return readySprite(characterSprites, classKey); }
+function monsterSpriteFor(type){ return readySprite(monsterSprites, type); }
+function gearSpriteFor(tier){
+  const img = gearSprites[tier];
   return (img && img.complete && img.naturalWidth > 0) ? img : null;
 }
 
@@ -47,6 +67,7 @@ function showLoot(text){
 
 // ---------- HUD ----------
 let lastGearTier = 0;
+let lastHudGearTier = -1; // -1 so the icon syncs on the very first updateHud call
 function setCdVisual(id, remain, total){
   const el = document.getElementById(id);
   const pct = total > 0 ? remain / total : 0;
@@ -61,7 +82,14 @@ function updateHud(s){
   document.getElementById('hpBar').style.width = Math.max(0, me.hp / me.maxHp * 100) + '%';
   document.getElementById('manaWrap').style.display = me.maxMana ? 'block' : 'none';
   if(me.maxMana) document.getElementById('manaBar').style.width = (me.mana / me.maxMana * 100) + '%';
-  document.getElementById('gearLabel').textContent = 'Gear: ' + GEAR_TIERS[me.gearTier].name;
+  document.getElementById('gearLabelText').textContent = 'Gear: ' + GEAR_TIERS[me.gearTier].name;
+  if(me.gearTier !== lastHudGearTier){
+    lastHudGearTier = me.gearTier;
+    const gearTierData = GEAR_TIERS[me.gearTier];
+    const gearIconEl = document.getElementById('gearIcon');
+    gearIconEl.classList.toggle('hidden', !gearTierData.sprite);
+    if(gearTierData.sprite) gearIconEl.src = gearTierData.sprite;
+  }
   document.getElementById('classLabel').textContent = CLASSES[me.classKey].name;
 
   const c = CLASSES[me.classKey];
@@ -165,19 +193,39 @@ function draw(s){
   // monsters
   s.monsters.forEach(mon=>{
     if(!mon.alive) return;
-    ctx.beginPath();
-    ctx.fillStyle = mon.color;
-    ctx.arc(mon.x, mon.y, mon.radius, 0, Math.PI * 2);
-    ctx.fill();
-    if(mon.stunTimer > 0){ ctx.fillStyle = "#fff"; ctx.font = "12px Georgia"; ctx.fillText("★", mon.x - 6, mon.y - mon.radius - 8); }
+    const sprite = monsterSpriteFor(mon.type);
+
+    // Same idea as players: HP bar/stun star/taunt ring hug the actual
+    // drawn silhouette when a sprite is present, not the tiny collision
+    // radius. The slam telegraph circle is a real gameplay AoE radius, not
+    // decoration, so it always stays centered on the true position at full
+    // scale regardless of sprite size.
+    let visualCenterY = mon.y, visualRadius = mon.radius;
+
+    if(sprite){
+      const drawHeight = mon.radius * 4.5;
+      const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
+      const drawX = mon.x - drawWidth / 2;
+      const drawY = mon.y + mon.radius - drawHeight;
+      ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+      visualCenterY = drawY + drawHeight / 2;
+      visualRadius = drawHeight / 2 * 0.65;
+    } else {
+      ctx.beginPath();
+      ctx.fillStyle = mon.color;
+      ctx.arc(mon.x, mon.y, mon.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if(mon.stunTimer > 0){ ctx.fillStyle = "#fff"; ctx.font = "12px Georgia"; ctx.fillText("★", mon.x - 6, visualCenterY - visualRadius - 8); }
     if(mon.tauntTimer > 0){
       ctx.strokeStyle = "#c94040"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(mon.x, mon.y, mon.radius + 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(mon.x, visualCenterY, visualRadius + 4, 0, Math.PI * 2); ctx.stroke();
     }
     const w = 40;
-    ctx.fillStyle = "#000a"; ctx.fillRect(mon.x - w / 2, mon.y - mon.radius - 14, w, 6);
+    ctx.fillStyle = "#000a"; ctx.fillRect(mon.x - w / 2, visualCenterY - visualRadius - 14, w, 6);
     ctx.fillStyle = mon.boss ? "#e8c14a" : "#c94040";
-    ctx.fillRect(mon.x - w / 2, mon.y - mon.radius - 14, w * Math.max(0, mon.hp / mon.maxHp), 6);
+    ctx.fillRect(mon.x - w / 2, visualCenterY - visualRadius - 14, w * Math.max(0, mon.hp / mon.maxHp), 6);
     if(mon.slamState === 'telegraph'){
       ctx.beginPath();
       ctx.strokeStyle = "rgba(255,60,60,0.85)"; ctx.lineWidth = 3;
@@ -235,6 +283,22 @@ function draw(s){
       ctx.strokeStyle = `rgba(255,255,255,${0.35 + 0.35 * pulse})`;
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 14, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Gear tier badge (skipped for Iron — no icon for the default tier, and
+    // nothing to call out yet). Visible for every player, not just yourself,
+    // same "party at a glance" idea as the roster HUD.
+    const gearIcon = p.gearTier > 0 ? gearSpriteFor(p.gearTier) : null;
+    if(gearIcon){
+      const badgeSize = 22;
+      const badgeX = p.x + ringRadius * 0.6;
+      const badgeY = ringCenterY + ringRadius * 0.6;
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(20,15,8,.75)";
+      ctx.arc(badgeX, badgeY, badgeSize / 2 + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = GEAR_TIERS[p.gearTier].color; ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.drawImage(gearIcon, badgeX - badgeSize / 2, badgeY - badgeSize / 2, badgeSize, badgeSize);
     }
     if(p.id !== myId){
       ctx.fillStyle = "#fff"; ctx.font = "11px Georgia"; ctx.textAlign = "center";
