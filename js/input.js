@@ -127,7 +127,19 @@ function pollGamepad(){
   let gp = null;
   if(navigator.getGamepads){
     const pads = navigator.getGamepads();
-    for(let i = 0; i < pads.length; i++){ if(pads[i]){ gp = pads[i]; break; } }
+    // Some non-controller peripherals (certain headsets' inline controls,
+    // among other things) expose a HID interface that also shows up here.
+    // mapping === "standard" is the browser's own signal that it recognizes
+    // this specific device as a real, standard-layout game controller —
+    // prefer that over just grabbing whatever's in the first slot, or a
+    // real controller sitting in slot 2+ next to some other device loses
+    // silently (exactly what happened here: a HyperX headset in slot 0).
+    for(let i = 0; i < pads.length; i++){
+      if(pads[i] && pads[i].mapping === 'standard'){ gp = pads[i]; break; }
+    }
+    if(!gp){
+      for(let i = 0; i < pads.length; i++){ if(pads[i]){ gp = pads[i]; break; } }
+    }
   }
 
   if(gp){
@@ -166,8 +178,15 @@ requestAnimationFrame(pollGamepad);
 // ---------- SEND ON TIMER ----------
 // `state` is the current screen, owned by main.js — only send while actually
 // in the game screen, and only ever include an action once per press/click.
+// Script tags load strictly sequentially over the network, and main.js
+// loads after this file; normally that's harmless since this timer's first
+// tick is 50ms out, well after the remaining scripts finish loading. But on
+// a slow enough connection those extra fetches can occasionally take longer
+// than that, so `state` may not exist yet on the very first tick or two —
+// guard it the same way net.js already guards its own reference to
+// main.js's onStateUpdate, rather than let a rare startup race throw.
 setInterval(()=>{
-  if(state !== 'game') return;
+  if(typeof state === 'undefined' || state !== 'game') return;
   sendInput(combinedKeys(), queuedAction);
   queuedAction = null;
 }, 1000 / INPUT_HZ);
