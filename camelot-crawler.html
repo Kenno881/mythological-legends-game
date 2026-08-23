@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Quest for Camelot</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app"><div id="stage">
+
+  <!-- TITLE -->
+  <div id="screen-title" class="screen">
+    <div class="title-plate">Quest for Camelot</div>
+    <div class="subtitle">Gather your kin. The Round Table calls.</div>
+    <button class="btn" id="btnStart">Begin the Quest</button>
+  </div>
+
+  <!-- CLASS SELECT -->
+  <div id="screen-class" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Choose Your Champion</div>
+    <div class="class-grid" id="classGrid"></div>
+    <button class="btn secondary" id="btnBack">Back</button>
+  </div>
+
+  <!-- GAME -->
+  <div id="screen-game" class="screen hidden" style="padding:0;background:none;">
+    <canvas id="canvas" width="1000" height="750"></canvas>
+    <div id="hud">
+      <div>
+        <div id="dungeonLabel">Sherwood Approach</div>
+        <div class="bar-wrap"><div class="bar hp" id="hpBar"></div></div>
+        <div class="bar-wrap" id="manaWrap"><div class="bar mana" id="manaBar"></div></div>
+      </div>
+      <div style="text-align:right;">
+        <div id="classLabel"></div>
+        <div id="gearLabel">Gear: Iron</div>
+      </div>
+    </div>
+    <div id="banner"></div>
+    <div id="loot-toast"></div>
+    <div id="controls">
+      <div class="stick-zone" id="stickZone">
+        <div class="stick-base"></div>
+        <div class="stick-nub" id="stickNub"></div>
+      </div>
+      <div class="action-col">
+        <button class="abtn special2 hidden" id="btnSpecial2">Special<div class="cd" id="cdSpecial2"></div></button>
+        <button class="abtn special1" id="btnSpecial1">Ability<div class="cd" id="cdSpecial1"></div></button>
+        <button class="abtn attack" id="btnAttack">Attack</button>
+      </div>
+    </div>
+    <div id="kbHint">Move: WASD / Arrows &nbsp; Attack: Space &nbsp; Ability: E &nbsp; Special: Q</div>
+  </div>
+
+  <!-- END -->
+  <div id="screen-end" class="screen hidden">
+    <div class="title-plate" id="endTitle">Victory</div>
+    <div class="subtitle" id="endSubtitle"></div>
+    <button class="btn" id="btnRestart">Return to Camelot</button>
+  </div>
+
+</div></div>
+
+<script src="js/data.js"></script>
+<script src="js/net.js"></script>
+<script src="js/input.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
