@@ -88,6 +88,7 @@ function attemptConnect(passphrase){
         settle(true);
       } else if(msg.type === 'state'){
         latestState = msg;
+        if(typeof onAudioState === 'function') onAudioState(msg);
         if(typeof onStateUpdate === 'function') onStateUpdate(msg);
       }
     });
