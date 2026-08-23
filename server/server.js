@@ -36,6 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
+const db = require('./db.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
 const HOST = '0.0.0.0';                // must bind all interfaces, not just localhost, for Railway
@@ -89,6 +90,7 @@ let dungeonIndex = 0;
 let roomIndex = 0;
 let advancing = false;                  // room/dungeon transition in progress
 let victory = false;
+let dungeonStartedAt = Date.now();      // reset in loadRoom() whenever a fresh dungeon begins — feeds best-time tracking (server/db.js)
 
 let monsterSeq = 0, lootSeq = 0, projSeq = 0;
 
@@ -98,6 +100,7 @@ function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 
 function loadRoom(idx){
   roomIndex = idx;
+  if(idx === 0) dungeonStartedAt = Date.now();
   const dungeon = currentDungeon();
   const room = dungeon.rooms[idx];
   for(const id in monsters) delete monsters[id];
@@ -206,6 +209,8 @@ wss.on('connection', (ws, req) => {
   if(priorWs && priorWs !== ws && priorWs.readyState === 1 /* OPEN */) priorWs.close();
   clients.set(id, ws);
 
+  db.touchOrCreatePlayer(id); // read-on-connect: creates the row on this id's first-ever connection, else bumps last_seen_at
+
   // Reconnecting within the grace window: cancel the pending removal.
   if(reconnectTimers.has(id)){
     clearTimeout(reconnectTimers.get(id));
@@ -224,6 +229,7 @@ wss.on('connection', (ws, req) => {
     clients.delete(id);
     const p = players[id];
     if(!p){ console.log(`[disconnect] ${id}`); return; }
+    db.savePlayerStats(p); // write-on-disconnect
     p.keys.up = p.keys.down = p.keys.left = p.keys.right = false; // stop it from walking into a wall forever
     reconnectTimers.set(id, setTimeout(()=>{
       delete players[id];
@@ -249,9 +255,9 @@ function handleMessage(id, msg){
     const classKey = CLASSES[msg.classKey] ? msg.classKey : 'squire';
     const c = CLASSES[classKey];
     const spawn = pickSpawnPoint();
+    const name = typeof msg.name === 'string' && msg.name.trim() ? msg.name.trim().slice(0, 20) : c.name;
     players[id] = {
-      id, classKey,
-      name: typeof msg.name === 'string' && msg.name.trim() ? msg.name.trim().slice(0, 20) : c.name,
+      id, classKey, name,
       x: spawn.x, y: spawn.y,
       hp: c.hp, maxHp: c.hp,
       mana: c.hasMana ? c.maxMana : 0, maxMana: c.hasMana ? c.maxMana : 0,
@@ -262,8 +268,13 @@ function handleMessage(id, msg){
       blockActive: false, blockTimer: 0,
       buffTimer: 0, buffMult: 1,
       spawnProtection: SPAWN_GRACE,
-      dead: false
+      dead: false,
+      // Lifetime counters, restored from disk — survive both a server
+      // restart and a fresh character after death (framed as "how many
+      // ever", not per-character session stats; see server/db.js).
+      ...db.loadPlayerStats(id)
     };
+    db.savePlayerStats(players[id]); // persist the resolved name even if stats themselves are unchanged
     console.log(`[join] ${id} as ${classKey}`);
     return;
   }
@@ -328,7 +339,7 @@ function doAttack(player){
     const buffed = a.dmg * player.buffMult;
     forEachAliveMonster(mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < a.range + mon.radius) hitMonster(mon, buffed);
+      if(d < a.range + mon.radius) hitMonster(mon, buffed, player.id);
     });
   }
 }
@@ -347,7 +358,7 @@ function doSpecial(player, slot){
   if(sp.name === "Shield Bash"){
     forEachAliveMonster(mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < sp.radius){ hitMonster(mon, sp.dmg); mon.stunTimer = sp.stun; }
+      if(d < sp.radius){ hitMonster(mon, sp.dmg, player.id); mon.stunTimer = sp.stun; }
     });
   } else if(sp.name === "Parry"){
     player.blockActive = true; player.blockTimer = sp.dur;
@@ -359,7 +370,7 @@ function doSpecial(player, slot){
   } else if(sp.name === "Arcane Nova"){
     forEachAliveMonster(mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < sp.radius) hitMonster(mon, sp.dmg);
+      if(d < sp.radius) hitMonster(mon, sp.dmg, player.id);
     });
   } else if(sp.name === "Healing Light"){
     player.hp = Math.min(player.maxHp, player.hp + sp.heal);
@@ -374,11 +385,13 @@ function doSpecial(player, slot){
   }
 }
 
-function hitMonster(mon, dmg){
+function hitMonster(mon, dmg, killerId){
   mon.hp -= dmg;
   if(mon.hp <= 0 && mon.alive){
     mon.alive = false;
     dropLoot(mon);
+    const killer = players[killerId];
+    if(killer){ killer.totalKills++; db.savePlayerStats(killer); }
     if(mon.boss) onBossDefeated();
   }
 }
@@ -396,13 +409,17 @@ function damagePlayer(player, dmg){
   player.hp -= reduced;
   if(player.hp <= 0 && !player.dead){
     player.dead = true; player.hp = 0;
+    player.totalDeaths++;
+    db.savePlayerStats(player);
     console.log(`[death] ${player.id} fell in ${currentDungeon().name}`);
   }
 }
 
 function onBossDefeated(){
   const d = currentDungeon();
-  console.log(`[boss defeated] ${d.name}`);
+  const elapsedSeconds = (Date.now() - dungeonStartedAt) / 1000;
+  db.recordDungeonClear(d.name, elapsedSeconds); // only overwrites if this beats the existing record
+  console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s`);
   advancing = true;
   setTimeout(()=>{
     advancing = false;
@@ -537,7 +554,7 @@ function tickProjectiles(dt){
     pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
     forEachAliveMonster(mon=>{
       if(pr.dead) return;
-      if(Math.hypot(mon.x - pr.x, mon.y - pr.y) < mon.radius + pr.r){ hitMonster(mon, pr.dmg); pr.dead = true; }
+      if(Math.hypot(mon.x - pr.x, mon.y - pr.y) < mon.radius + pr.r){ hitMonster(mon, pr.dmg, pr.ownerId); pr.dead = true; }
     });
   });
   projectiles = projectiles.filter(pr => pr.life > 0 && !pr.dead);
