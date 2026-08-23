@@ -23,7 +23,12 @@ const path = require('path');
 const { GoogleGenAI, Modality } = require('@google/genai');
 
 const OUT_DIR = path.join(__dirname, '..', 'Assets', 'sprites');
-const MODEL = 'gemini-3.1-flash-image'; // current non-preview model; the -preview variants are deprecated
+// gemini-3.1-flash-image is the current best-quality non-preview model, but
+// it's paid-only (no free-tier quota at all — confirmed via a real 429 with
+// limit:0). Override with GEMINI_IMAGE_MODEL to try a model that might have
+// free-tier access, e.g.:
+//   (PowerShell) $env:GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
+const MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image';
 
 // Keeps every generated sprite compatible with process-sprites.js's
 // flood-fill-from-border chroma-key: it needs an actual solid white
@@ -51,7 +56,7 @@ function requireApiKey(){
 
 async function generateOne(ai, name, prompt){
   const fullPrompt = STYLE_PREFIX + prompt;
-  console.log(`[${name}] requesting...`);
+  console.log(`[${name}] requesting (model: ${MODEL})...`);
 
   const response = await ai.models.generateContent({
     model: MODEL,
