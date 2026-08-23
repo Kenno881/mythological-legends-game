@@ -133,21 +133,17 @@ turning into an unorganized pile.
 |---|---|---|---|---|---|
 | 1 | Sherwood Approach | Forest, tutorial | 1 (always open) | Black Knight of the Ford | TBD |
 | 2 | The Sunken Chapel | Flooded, undead | TBD | Green Knight | TBD |
-| 3 | Mordred's Keep | Dark, knights | TBD | Mordred (or his lieutenant — see below) | TBD |
+| 3 | Mordred's Keep | Dark, knights | TBD | A lieutenant of Mordred's (name TBD — see below) | TBD |
 | 4 | Avalon's Mist | Mystical | TBD | The Questing Beast | TBD |
-| 5 | **Camlann** *(proposed capstone — open decision)* | The final battle | Highest | **Mordred** (true final confrontation) | — |
+| 5 | **Camlann** | The final battle | Highest | **Mordred** (true final confrontation) | — |
 
-**Open story decision — where Arc I actually climaxes.** Mordred is
-currently dungeon 3's boss, but the Battle of Camlann (Arthur and Mordred's
-final, mutually fatal clash) is the legend's real climax. Two options:
-1. **Reorder** — make Mordred's Keep the last dungeon, Mordred the true
-   final boss, and move the Questing Beast to a mid-campaign or mini-boss
-   role instead.
-2. **Add Camlann as a capstone** *(leaning toward this)* — keep the four
-   existing dungeons as-is; Mordred's Keep becomes a fight against his
-   forces/a lieutenant; a new 5th dungeon, Camlann, is the actual final
-   confrontation with Mordred. Preserves everything already built and gives
-   the ending direct mythological weight.
+**Arc I climax: Camlann is the capstone (decided).** The Battle of Camlann
+(Arthur and Mordred's final, mutually fatal clash) is the legend's real
+climax, so it gets its own dungeon rather than folding into Mordred's
+Keep. The four existing dungeons stay as-is; Mordred's Keep (dungeon 3)
+becomes a fight against his forces/a lieutenant, not Mordred himself; the
+new 5th dungeon, Camlann, is the actual final confrontation. Preserves
+everything already built and gives the ending direct mythological weight.
 
 ### Arc II — The Fae Court *(new — Otherworld/fae folklore)*
 
@@ -261,8 +257,10 @@ the arena-vs-chambers question: chambers win.** Every dungeon keeps its
 room-to-room maze structure. Auto-attack + target-lock is the core combat
 input, shared across all classes. What changes from the current hand-placed
 build is that enemy density escalates as the party moves through the maze
-(time and/or kill-count driven — TBD) rather than each room having a fixed,
-identical enemy count every time.
+rather than each room having a fixed, identical enemy count every time.
+**Escalation driver (decided): kill-count primary, with a time-based cap as
+a safety net** — so a run can't stall forever camping easy kills instead of
+pushing forward.
 
 **Boss encounters trigger probabilistically at points during the run** —
 usually the dungeon's standard boss, rarely a named/rare variant with
@@ -281,7 +279,6 @@ layouts + spawn tables + boss rosters on the same engine.
 combat, sprite art, gear tiers, leveling/boon system (§10).
 
 **Open questions:**
-- Primary escalation driver: run time, kill count, or both?
 - Exact level thresholds per dungeon (§5).
 
 ---
@@ -305,8 +302,11 @@ permanent-character feel that's actually the point here.
 - **Temporary (per-run):** boons picked up mid-dungeon, offering the
   build-choice moment, cleared at the end of the run regardless of outcome.
 
+**XP sources (decided): all three, weighted.** A small amount per regular
+kill keeps XP flowing during a run; a large chunk on boss kill and a bonus
+on dungeon completion make those the moments that actually move the needle.
+
 **Open questions:**
-- What actually grants permanent XP — boss kills, dungeon completion, both?
 - Boon pool size/rarity — should mirror the "sometimes it's something
   special" feeling used for rare bosses (§9) and rare loot.
 
@@ -321,23 +321,27 @@ requires a real store.
 need for a separate managed Postgres service at family scale. Keyed by the
 existing persistent `playerId`.
 
+**Currency: one shared family pool (decided), not per-player.** Fits the
+"we're building this together" spirit better than internal competition —
+this is a family game, not four separate save files.
+
 **Proposed schema (draft, not committed):**
 ```
 players
   id (playerId, primary key)
   name
-  currency
   best_wilds_time_seconds
   total_kills
   total_deaths
   unlocks (json array — permanent unlock IDs)
   created_at, last_seen_at
+
+family
+  id (singleton row — always id=1)
+  currency
 ```
 
 **Open questions:**
-- Is progression per-player or per-family (one shared currency pool)? Given
-  this is a family game, a shared pool might suit the "we're building this
-  together" spirit better than individual competition.
 - What's actually worth unlocking? (New starting classes, cosmetic skins,
   starting perks, Wilds arena variants — needs a real list, not just "TBD.")
 
@@ -372,7 +376,9 @@ as-is regardless of the run-model change)*
 - [ ] Permanent unlock catalog + purchase flow
 - [ ] Tie into persistence layer from Phase 2
 
-**Phase 6 — New classes** *(1-2 at a time, not all at once)*
+**Phase 6 — New classes** *(1-2 at a time, not all at once; Enchanter first
+— decided, most fully designed already and completes the trinity-plus-CC
+group immediately)*
 - [ ] Enchanter (CC)
 - [ ] Ranger
 - [ ] Bard
@@ -380,8 +386,7 @@ as-is regardless of the run-model change)*
 - [ ] Battle Conjurer (pet class)
 
 **Phase 7 — Arc expansion**
-- [ ] Finish Arc I: resolve the Camlann-vs-reorder decision (§5), build
-      the true campaign finale
+- [ ] Finish Arc I: build Camlann as the true campaign finale (§5)
 - [ ] Arc II (The Fae Court): Queen Mab / The Hollow Court as the anchor
       bonus dungeon; room for Titania/Oberon, Puck, the Wild Hunt later
 - [ ] Arc III (Isles & Legends): pick from the idea bank (Lambton Worm,
@@ -397,22 +402,28 @@ as-is regardless of the run-model change)*
 
 *Running list of things that need a call before the relevant phase starts.*
 
-- **Where Arc I climaxes** — reorder Mordred's Keep to be last, or add
-  Camlann as a 5th capstone dungeon (§5). Leaning toward Camlann.
-- Primary escalation driver: run time, kill count, or both? (§9)
 - Exact level thresholds per dungeon (§5)
-- What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
-- Per-player vs. per-family shared currency (§11)
 - Concrete unlock catalog for meta-progression (§11)
 - Rare/named boss roster per dungeon — who they are, what makes each one
   feel distinct beyond a stat bump (§5)
-- New-class rollout order within Phase 6 — which of the five first?
 - Queen Mab's actual boss mechanic, once her bonus dungeon is scoped (§5)
 - Which Arc III folklore figures to build first — full idea bank in §5
   isn't meant to all get built at once
 
 ### Decided (kept here for reference, not deleted once resolved)
+- Arc I climaxes at Camlann, a new 5th capstone dungeon, rather than
+  reordering Mordred's Keep to be last — Mordred's Keep (dungeon 3) fights
+  his forces/a lieutenant instead of Mordred himself (§5).
+- Escalation driver is kill-count primary, with a time-based cap as a
+  safety net against camping easy kills instead of pushing forward (§9).
+- Permanent XP comes from all three sources: a small amount per kill, a
+  large chunk on boss kill, a bonus on dungeon completion (§10).
+- Currency is one shared family pool, not per-player or per-character —
+  fits the "we're building this together" spirit over internal
+  competition (§11).
+- Enchanter is the first new class added in Phase 6 — most fully designed
+  already, and completes the trinity-plus-CC group immediately (§4, §12).
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
   early (§5).
 - Dungeons keep their maze/room structure — no flat open arenas (§9).
