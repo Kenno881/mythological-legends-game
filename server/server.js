@@ -17,6 +17,8 @@
 //                     roomId, dungeonName, boss, victory}              every tick (20/s)
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { WebSocketServer } = require('ws');
 const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
 
@@ -71,15 +73,61 @@ loadRoom(0);
 const clients = new Map(); // playerId -> ws
 let nextPlayerId = 1;
 
-// A bare `new WebSocketServer({port, host})` creates its own internal HTTP
-// server that never responds to plain HTTP requests — it just leaves them
-// hanging. That's enough to fail a platform healthcheck (Railway included),
-// so we run our own tiny HTTP server instead and hand it to WebSocketServer
-// for the upgrade handshake, giving ordinary GETs a real 200 response.
-const httpServer = http.createServer((req, res)=>{
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Quest for Camelot server is running.\n');
-});
+// ---------- STATIC CLIENT ----------
+// Serves the browser client (camelot-crawler.html, css/, js/ — all siblings
+// of this server/ directory) over plain HTTP on the same port as the
+// WebSocket, so the deployed URL is the actual game, not just an API.
+//
+// CLIENT_ROOT is the repo root, which also contains server/ (source, deps,
+// package files) — so this deliberately does NOT serve "anything under
+// CLIENT_ROOT". Only the one HTML file and the css/js directories below are
+// reachable; everything else 404s regardless of what's actually on disk.
+const CLIENT_ROOT = path.join(__dirname, '..');
+const STATIC_DIRS = {
+  '/css/': path.join(CLIENT_ROOT, 'css'),
+  '/js/': path.join(CLIENT_ROOT, 'js')
+};
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8'
+};
+
+function resolveStaticFile(urlPath){
+  if(urlPath === '/' || urlPath === '/camelot-crawler.html'){
+    return path.join(CLIENT_ROOT, 'camelot-crawler.html');
+  }
+  for(const prefix in STATIC_DIRS){
+    if(!urlPath.startsWith(prefix)) continue;
+    const dirRoot = STATIC_DIRS[prefix];
+    const candidate = path.normalize(path.join(dirRoot, urlPath.slice(prefix.length)));
+    return candidate.startsWith(dirRoot) ? candidate : null; // guard traversal, e.g. "/js/../server/server.js"
+  }
+  return null; // not one of the client's own files — don't serve it
+}
+
+function serveStatic(req, res){
+  const urlPath = decodeURIComponent(req.url.split('?')[0]);
+  const filePath = resolveStaticFile(urlPath);
+  if(!filePath){
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found');
+    return;
+  }
+
+  fs.readFile(filePath, (err, data)=>{
+    if(err){
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+    const ext = path.extname(filePath);
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+const httpServer = http.createServer(serveStatic);
 const wss = new WebSocketServer({ server: httpServer });
 httpServer.listen(PORT, HOST);
 
