@@ -20,7 +20,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
+const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, SHARED_PASSPHRASE } = require('../js/data.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
 const HOST = '0.0.0.0';                // must bind all interfaces, not just localhost, for Railway
@@ -128,7 +128,17 @@ function serveStatic(req, res){
 }
 
 const httpServer = http.createServer(serveStatic);
-const wss = new WebSocketServer({ server: httpServer });
+// Reject the WebSocket handshake itself (not "connect then close") if the
+// passphrase is missing or wrong — the client never even gets an 'open'.
+const wss = new WebSocketServer({
+  server: httpServer,
+  verifyClient: (info, callback) => {
+    const passphrase = new URL(info.req.url, 'http://internal').searchParams.get('passphrase');
+    const ok = passphrase === SHARED_PASSPHRASE;
+    if(!ok) console.log('[auth] rejected connection: bad or missing passphrase');
+    callback(ok, 401, 'Unauthorized');
+  }
+});
 httpServer.listen(PORT, HOST);
 
 wss.on('connection', (ws) => {

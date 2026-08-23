@@ -27,7 +27,7 @@ let latestState = null;        // last {type:"state", ...} payload received
 
 function connect(){
   connStatus = "connecting";
-  ws = new WebSocket(SERVER_URL);
+  ws = new WebSocket(`${SERVER_URL}?passphrase=${encodeURIComponent(SHARED_PASSPHRASE)}`);
 
   ws.addEventListener('open', () => {
     connStatus = "open";
