@@ -134,16 +134,23 @@ const ENEMY_TYPES = {
   blackKnight:  {hp:420, speed:80,  dmg:20, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
                  slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
                  sprite:"assets/sprites/blackknightboss.png"},
-  zombie:       {hp:55,  speed:70,  dmg:10, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15},
-  wraith:       {hp:28,  speed:155, dmg:9,  radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15},
+  zombie:       {hp:55,  speed:70,  dmg:10, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
+                 sprite:"assets/sprites/zombie.png"},
+  wraith:       {hp:28,  speed:155, dmg:9,  radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
+                 sprite:"assets/sprites/wraith.png"},
   greenKnight:  {hp:500, speed:92,  dmg:18, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
-                 slamCd:4.2, slamRadius:110, slamDmg:30, slamTelegraph:1.0},
-  direKnight:   {hp:85,  speed:105, dmg:15, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3},
+                 slamCd:4.2, slamRadius:110, slamDmg:30, slamTelegraph:1.0,
+                 sprite:"assets/sprites/greenknight.png"},
+  direKnight:   {hp:85,  speed:105, dmg:15, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
+                 sprite:"assets/sprites/direknight.png"},
   mordred:      {hp:600, speed:98,  dmg:22, radius:26, color:"#7a1f2b", range:46, cd:1.1, boss:true,
-                 slamCd:3.8, slamRadius:130, slamDmg:36, slamTelegraph:1.0},
-  mistWraith:   {hp:40,  speed:135, dmg:11, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2},
+                 slamCd:3.8, slamRadius:130, slamDmg:36, slamTelegraph:1.0,
+                 sprite:"assets/sprites/mordred.png"},
+  mistWraith:   {hp:40,  speed:135, dmg:11, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2,
+                 sprite:"assets/sprites/mistwraith.png"},
   questingBeast:{hp:750, speed:88,  dmg:25, radius:30, color:"#3a1f5b", range:50, cd:1.2, boss:true,
-                 slamCd:3.5, slamRadius:150, slamDmg:38, slamTelegraph:0.9}
+                 slamCd:3.5, slamRadius:150, slamDmg:38, slamTelegraph:0.9,
+                 sprite:"assets/sprites/questingbeast.png"}
 };
 
 // Shared with the Node server (server/server.js) so class/enemy/dungeon stats
