@@ -16,7 +16,15 @@
 html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--stone-dark);
   font-family:Georgia,'Times New Roman',serif;}
 #app{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
-#stage{position:relative;width:100%;height:100%;max-width:1000px;max-height:750px;
+/* Fills as much of the actual screen as possible while keeping the
+   canvas's fixed 1000x750 (4:3) aspect ratio intact — scaling to
+   100%/100% directly would stretch every sprite/circle out of shape on
+   any non-4:3 screen. min() picks whichever axis is the tighter fit;
+   any leftover margin is the same --stone-dark as the page behind it,
+   so it reads as filling the screen rather than as visible letterboxing. */
+#stage{position:relative;
+  width:min(100vw, calc(100vh * 4 / 3));
+  height:min(100vh, calc(100vw * 3 / 4));
   background:var(--stone-dark);box-shadow:0 0 60px rgba(0,0,0,.6);}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 
