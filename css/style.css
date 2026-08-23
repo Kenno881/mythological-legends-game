@@ -68,6 +68,18 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
   font-variant:small-caps;letter-spacing:2px;pointer-events:none;opacity:0;transition:opacity .4s;text-align:center;}
 #banner.show{opacity:1;}
 
+#roster{position:absolute;top:70px;right:14px;display:flex;flex-direction:column;gap:5px;
+  pointer-events:none;width:150px;}
+.roster-entry{background:rgba(20,15,8,.72);border:1px solid var(--gold);border-radius:5px;
+  padding:4px 7px;transition:opacity .2s;}
+.roster-entry.me{border-color:var(--gold-bright);border-width:2px;padding:3px 6px;}
+.roster-entry.dead{opacity:.45;}
+.roster-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;
+  font-size:11px;color:var(--parchment);font-variant:small-caps;letter-spacing:.5px;}
+.roster-row .roster-hp-text{font-size:10px;color:var(--parchment-dark);font-variant:normal;}
+.roster-hpbar-wrap{width:100%;height:5px;background:#000a;border-radius:3px;overflow:hidden;}
+.roster-hpbar{height:100%;background:linear-gradient(90deg,#7a1f2b,#c94040);transition:width .15s;}
+
 #controls{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;
   align-items:flex-end;padding:16px;pointer-events:none;}
 .stick-zone{width:120px;height:120px;pointer-events:auto;position:relative;}

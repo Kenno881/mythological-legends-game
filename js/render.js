@@ -59,6 +59,53 @@ function updateHud(s){
   lastGearTier = me.gearTier;
 }
 
+// ---------- ROSTER ----------
+// A party-at-a-glance sidebar — mainly for the Cleric, who otherwise has to
+// visually hunt for low-HP allies on a canvas that gets crowded with
+// particles and monsters. Diffs against `s.players` rather than rebuilding
+// every frame: this runs at the state broadcast rate (20/s), and rebuilding
+// the whole list that often causes visible flicker for no reason.
+const rosterEls = new Map(); // playerId -> {el, hpText, hpBar}
+
+function updateRoster(s){
+  const container = document.getElementById('roster');
+  const seen = new Set();
+
+  s.players.forEach(p=>{
+    seen.add(p.id);
+    let entry = rosterEls.get(p.id);
+    if(!entry){
+      const el = document.createElement('div');
+      el.className = 'roster-entry';
+      el.innerHTML = `
+        <div class="roster-row"><span class="roster-name"></span><span class="roster-hp-text"></span></div>
+        <div class="roster-hpbar-wrap"><div class="roster-hpbar"></div></div>`;
+      container.appendChild(el);
+      entry = {
+        el,
+        nameEl: el.querySelector('.roster-name'),
+        hpTextEl: el.querySelector('.roster-hp-text'),
+        hpBarEl: el.querySelector('.roster-hpbar')
+      };
+      rosterEls.set(p.id, entry);
+    }
+    entry.nameEl.textContent = p.name + (p.id === myId ? ' (you)' : '');
+    entry.hpTextEl.textContent = `${Math.max(0, Math.round(p.hp))}/${p.maxHp}`;
+    entry.hpBarEl.style.width = Math.max(0, p.hp / p.maxHp * 100) + '%';
+    entry.el.classList.toggle('me', p.id === myId);
+    entry.el.classList.toggle('dead', p.dead);
+  });
+
+  // Drop entries for players no longer in the broadcast (left, or their
+  // reconnect grace period fully expired).
+  for(const [id, entry] of rosterEls){
+    if(!seen.has(id)){
+      entry.el.remove();
+      rosterEls.delete(id);
+    }
+  }
+}
+
 // ---------- ROOM TRANSITIONS (derived from state, not simulated) ----------
 let lastRoomId = null;
 function checkRoomTransition(s){
@@ -168,6 +215,7 @@ function renderLoop(){
   if(state === 'game' && latestState){
     checkRoomTransition(latestState);
     updateHud(latestState);
+    updateRoster(latestState);
     draw(latestState);
   }
   requestAnimationFrame(renderLoop);

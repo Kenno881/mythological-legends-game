@@ -49,10 +49,34 @@ const W = 1000, H = 750;
 const TICK_RATE = 20;
 const TICK_MS = 1000 / TICK_RATE;
 
-const SPAWN_X = 100, SPAWN_Y = H / 2;
-const SPAWN_SPREAD = 24;   // small random offset so simultaneous joins don't stack on one pixel
-const SPAWN_GRACE = 3;     // seconds of damage immunity after a (re)join, so spawning into a
-                            // room where monsters already drifted near spawn isn't a free kill
+const ENTRANCE_X = 100, ENTRANCE_Y = H / 2; // every room's layout puts enemies well clear of this
+const SPAWN_SEARCH_RADIUS = 70; // how far from the entrance a spawn point is allowed to drift
+const SPAWN_CANDIDATES = 8;     // sampled points to pick the one farthest from any alive monster
+const SPAWN_GRACE = 3;     // seconds of damage immunity after a (re)join regardless of where they
+                            // land — the entrance-seeking placement below is the main defense
+                            // against spawning into a fight, this is just the backstop
+
+// Picks a spawn point near the room's entrance, biased away from whatever
+// monsters are currently alive — so a join/rejoin mid-fight doesn't land
+// someone in the middle of it just because the fight has drifted toward the
+// entrance over time. Falls back to the entrance itself if nothing is alive
+// (or all candidates are equally boxed in) — there's nothing to avoid.
+function pickSpawnPoint(){
+  let best = { x: ENTRANCE_X, y: ENTRANCE_Y };
+  let bestDist = -Infinity;
+  for(let i = 0; i < SPAWN_CANDIDATES; i++){
+    const x = ENTRANCE_X + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
+    const y = ENTRANCE_Y + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
+    let nearest = Infinity;
+    for(const id in monsters){
+      const mon = monsters[id];
+      if(!mon.alive) continue;
+      nearest = Math.min(nearest, Math.hypot(mon.x - x, mon.y - y));
+    }
+    if(nearest > bestDist){ bestDist = nearest; best = { x, y }; }
+  }
+  return best;
+}
 
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; // how long a disconnected character survives before removal
 
@@ -219,11 +243,11 @@ function handleMessage(id, msg){
     if(players[id] && !players[id].dead) return;
     const classKey = CLASSES[msg.classKey] ? msg.classKey : 'squire';
     const c = CLASSES[classKey];
+    const spawn = pickSpawnPoint();
     players[id] = {
       id, classKey,
       name: typeof msg.name === 'string' && msg.name.trim() ? msg.name.trim().slice(0, 20) : c.name,
-      x: SPAWN_X + (Math.random() * 2 - 1) * SPAWN_SPREAD,
-      y: SPAWN_Y + (Math.random() * 2 - 1) * SPAWN_SPREAD,
+      x: spawn.x, y: spawn.y,
       hp: c.hp, maxHp: c.hp,
       mana: c.hasMana ? c.maxMana : 0, maxMana: c.hasMana ? c.maxMana : 0,
       speed: c.speed, radius: c.radius, color: c.color,
