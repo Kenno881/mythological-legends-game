@@ -113,8 +113,6 @@ function attemptConnect(passphrase){
       } else if(msg.type === 'loginResult'){
         if(msg.ok) setAccountId(msg.accountId);
         if(typeof onLoginResult === 'function') onLoginResult(msg);
-      } else if(msg.type === 'muster'){
-        if(typeof onMuster === 'function') onMuster(msg);
       } else if(msg.type === 'state'){
         latestState = msg;
         if(typeof onAudioState === 'function') onAudioState(msg);
@@ -127,12 +125,6 @@ function attemptConnect(passphrase){
 function sendLogin(username, pin){
   if(!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify({ type: 'login', username, pin }));
-  return true;
-}
-
-function sendReady(ready){
-  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify({ type: 'ready', ready }));
   return true;
 }
 

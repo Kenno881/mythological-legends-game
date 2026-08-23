@@ -154,7 +154,8 @@ function hashPin(pin, salt){
 }
 
 // Which of the 5 reserved account ids this actually is (display name,
-// whether it's the muster-exempt test account) is server.js's concern —
+// whether it's the test account, exempt from the family party gate) is
+// server.js's concern —
 // this file only stores/verifies credentials and the permanent class
 // choice, keyed by the same lowercased id server.js already validated
 // against its reserved-name list.

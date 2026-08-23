@@ -157,7 +157,8 @@ function checkRoomTransition(s){
   lastRoomId = s.roomId;
   const dungeon = dungeonByName(s.dungeonName);
   if(!dungeon) return;
-  showBanner(s.boss ? dungeon.bossIntroText : s.dungeonName);
+  if(s.safe) showBanner("Safe Room — gather your party, then head for the light");
+  else showBanner(s.boss ? dungeon.bossIntroText : s.dungeonName);
 }
 
 // ---------- DRAW ----------
@@ -166,8 +167,12 @@ function draw(s){
   if(!s) return;
 
   const dungeon = dungeonByName(s.dungeonName);
-  const floorColor = dungeon ? dungeon.floorColor : '#222';
-  const wallColor = dungeon ? dungeon.wallColor : '#111';
+  // The safe room always reads as warm/torch-lit regardless of which
+  // dungeon it belongs to — a deliberate visual break from the danger
+  // colors of the rooms ahead, so it's obvious at a glance you're
+  // somewhere nothing can hurt you.
+  const floorColor = s.safe ? '#3d3020' : (dungeon ? dungeon.floorColor : '#222');
+  const wallColor = s.safe ? '#241c12' : (dungeon ? dungeon.wallColor : '#111');
 
   // floor
   ctx.fillStyle = floorColor;
@@ -179,6 +184,24 @@ function draw(s){
   ctx.fillStyle = wallColor;
   ctx.fillRect(0, 0, W, 24); ctx.fillRect(0, H - 16, W, 16);
   ctx.fillRect(0, 0, 16, H); ctx.fillRect(W - 16, 0, 16, H);
+
+  // safe room exit — a pulsing gate of light the party walks into when ready
+  if(s.safe && s.safeExit){
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+    ctx.beginPath();
+    ctx.arc(s.safeExit.x, s.safeExit.y, s.safeExit.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(232,193,74,${0.12 + 0.1 * pulse})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(232,193,74,${0.6 + 0.4 * pulse})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = "#e8c14a"; ctx.font = "13px Georgia"; ctx.textAlign = "center";
+    ctx.fillText(
+      s.waitingForFamily ? "Waiting for the whole family…" : "Enter when ready",
+      s.safeExit.x, s.safeExit.y - s.safeExit.r - 10
+    );
+    ctx.textAlign = "left";
+  }
 
   // loot
   s.loot.forEach(l=>{

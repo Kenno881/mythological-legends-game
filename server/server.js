@@ -17,7 +17,6 @@
 //     a "login" message succeeds. See ACCOUNTS/LOGIN below.
 //   Client -> Server
 //     {type:"login", username, pin}       only while the connection is pending (no id yet)
-//     {type:"ready", ready}               toggle this account's muster-ready state
 //     {type:"join", classKey}             one-time per account — ignored if the account
 //                                          already has a permanent classKey (§8a)
 //     {type:"input", keys:{up,down,left,right}, action:null|"attack"|"special1"|"special2"}
@@ -27,10 +26,19 @@
 //                                                                  is established (immediately
 //                                                                  for a remembered device, or
 //                                                                  right after a successful login)
-//     {type:"muster", connected:[...], ready:[...]}   sent to any logged-in-but-not-yet-joined
-//                                                      socket whenever muster state changes
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
-//                     roomId, dungeonName, boss, victory}              every tick (20/s)
+//                     roomId, dungeonName, boss, safe, safeExit:{x,y,r},
+//                     victory, waitingForFamily}   every tick (20/s)
+//
+// SAFE ROOM & PARTY GATE: every dungeon's room 0 is a safe room (no
+// monsters — see js/data.js's DUNGEONS) where the party can see who's
+// actually here before diving in. Walking into `safeExit` (a fixed spot
+// near the far wall) advances into room 1, the first real chamber. On
+// Sherwood Approach (dungeonIndex 0) that always works — anyone can start,
+// solo or with whoever's around. Every dungeon beyond it also requires all
+// 4 family accounts connected before the exit does anything; standing at
+// it otherwise just sets `waitingForFamily: true` so clients know why
+// nothing happened. See tickSafeRoom().
 //
 // RECONNECT: players/clients are keyed by the account id, not a per-socket
 // counter. On disconnect a character isn't deleted — it just sits in the
@@ -92,12 +100,12 @@ const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; 
 
 // ---------- ACCOUNTS (MASTER_DESIGN.md §8a) ----------
 // Exactly 5 reserved account ids — the family's fixed 4-person roster plus
-// one solo QA account exempt from muster. No open self-registration: this
-// list is the actual access control (an unrecognized username is rejected
-// at login, same shape as the passphrase gate). PINs themselves are never
-// pre-assigned here — see server/db.js's verifyOrClaimPin, which lets each
-// account set its own PIN on first login rather than this file ever
-// handling/transmitting one.
+// one solo QA account exempt from the party gate below. No open
+// self-registration: this list is the actual access control (an
+// unrecognized username is rejected at login, same shape as the
+// passphrase gate). PINs themselves are never pre-assigned here — see
+// server/db.js's verifyOrClaimPin, which lets each account set its own
+// PIN on first login rather than this file ever handling/transmitting one.
 const ACCOUNTS = {
   dad:    { name: 'Dad',    isTest: false },
   mum:    { name: 'Mum',    isTest: false },
@@ -115,8 +123,9 @@ let loot = [];
 let dungeonIndex = 0;
 let roomIndex = 0;
 let advancing = false;                  // room/dungeon transition in progress
+let waitingForFamily = false;           // standing at the safe room's exit but not all 4 family accounts are online yet
 let victory = false;
-let dungeonStartedAt = Date.now();      // reset in loadRoom() whenever a fresh dungeon begins — feeds best-time tracking (server/db.js)
+let dungeonStartedAt = Date.now();      // reset in loadRoom() on leaving the safe room — feeds best-time tracking (server/db.js), not padded by however long the party took to gather
 
 let monsterSeq = 0, lootSeq = 0, projSeq = 0;
 
@@ -126,7 +135,7 @@ function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 
 function loadRoom(idx){
   roomIndex = idx;
-  if(idx === 0) dungeonStartedAt = Date.now();
+  if(idx === 1) dungeonStartedAt = Date.now(); // idx 0 is always the safe room — the real run starts on leaving it
   const dungeon = currentDungeon();
   const room = dungeon.rooms[idx];
   for(const id in monsters) delete monsters[id];
@@ -140,8 +149,15 @@ function loadRoom(idx){
       stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0
     });
   });
-  console.log(`[room] ${dungeon.name} — ${room.boss ? 'BOSS' : 'chamber ' + (idx + 1)} (${room.enemies.length} monsters)`);
+  const label = room.safe ? 'safe room' : room.boss ? 'BOSS' : `chamber ${idx}`;
+  console.log(`[room] ${dungeon.name} — ${label} (${room.enemies.length} monsters)`);
 }
+
+// The safe room's exit — a fixed spot near the far wall, opposite the
+// entrance, that a player walks into to signal "let's go". Same shape as
+// the existing spawn-point/loot-pickup proximity checks, not a new
+// mechanic. See tickSafeRoom().
+const SAFE_EXIT_X = W - 100, SAFE_EXIT_Y = H / 2, SAFE_EXIT_RADIUS = 50;
 
 loadRoom(0);
 
@@ -149,19 +165,11 @@ loadRoom(0);
 const clients = new Map();          // playerId -> ws (the live socket, if any, for that character)
 const reconnectTimers = new Map();  // playerId -> pending-removal timeout, only set while disconnected
 
-// ---------- MUSTER (in-memory only — a "who's here right now" lobby, not
-// game progress, so nothing here is persisted or survives a restart) ----------
-// account id -> logged in but hasn't joined a character this session yet
-const musterConnected = new Set();
-// account id -> hit "Ready" — cleared on disconnect and once they actually join
-const musterReady = new Set();
-
-function broadcastMuster(){
-  const payload = JSON.stringify({ type: 'muster', connected: [...musterConnected], ready: [...musterReady] });
-  for(const id of musterConnected){
+function familyFullyConnected(){
+  return FAMILY_IDS.every(id => {
     const ws = clients.get(id);
-    if(ws && ws.readyState === 1) ws.send(payload);
-  }
+    return ws && ws.readyState === 1;
+  });
 }
 
 // ---------- STATIC CLIENT ----------
@@ -266,14 +274,6 @@ wss.on('connection', (ws, req) => {
     }
     const resuming = !!players[id];
 
-    // A resuming connection (already had a live character) skips muster
-    // entirely — muster is a per-session "everyone's here" lobby, not
-    // something re-triggered by every reconnect or in-run death/rejoin.
-    if(!resuming){
-      musterConnected.add(id);
-      broadcastMuster();
-    }
-
     ws.send(JSON.stringify({
       type: 'welcome', id, roomId: currentRoomId(), resuming,
       classKey: db.getAccountClass(id), isTest: ACCOUNTS[id].isTest
@@ -314,9 +314,6 @@ wss.on('connection', (ws, req) => {
     if(id === null) return; // never actually logged in — nothing was ever registered for this socket
     if(clients.get(id) !== ws) return; // a newer connection already replaced this one; nothing to do
     clients.delete(id);
-    musterConnected.delete(id);
-    musterReady.delete(id);
-    broadcastMuster();
     const p = players[id];
     if(!p){ console.log(`[disconnect] ${id}`); return; }
     db.savePlayerStats(p); // write-on-disconnect
@@ -336,12 +333,6 @@ wss.on('connection', (ws, req) => {
 
 function handleMessage(id, msg){
   if(!msg || typeof msg.type !== 'string') return;
-
-  if(msg.type === 'ready'){
-    if(msg.ready) musterReady.add(id); else musterReady.delete(id);
-    broadcastMuster();
-    return;
-  }
 
   if(msg.type === 'join'){
     // Refuse to clobber a *live* character (protects a reconnect from
@@ -377,7 +368,6 @@ function handleMessage(id, msg){
       ...db.loadPlayerStats(id)
     };
     db.savePlayerStats(players[id]); // persist the resolved name even if stats themselves are unchanged
-    musterConnected.delete(id); musterReady.delete(id); broadcastMuster(); // no longer waiting in the lobby
     console.log(`[join] ${id} as ${classKey}`);
     return;
   }
@@ -542,19 +532,40 @@ function onBossDefeated(){
   advancing = true;
   setTimeout(()=>{
     advancing = false;
-    if(dungeonIndex + 1 < DUNGEONS.length){
-      dungeonIndex++;
-      for(const id in players){
-        const p = players[id];
-        p.hp = p.maxHp;
-        if(p.maxMana) p.mana = p.maxMana;
-      }
-      loadRoom(0);
-    } else {
+    if(dungeonIndex + 1 >= DUNGEONS.length){
       victory = true;
       console.log('[victory] Camelot is saved');
+      return;
     }
+    dungeonIndex++;
+    for(const id in players){
+      const p = players[id];
+      p.hp = p.maxHp;
+      if(p.maxMana) p.mana = p.maxMana;
+    }
+    loadRoom(0); // the new dungeon's safe room — the party gate (see tickSafeRoom) lives at its exit, not here
   }, 1800);
+}
+
+// The safe room has no monsters to clear, so it needs its own advance
+// trigger: a player walking into the exit spot. Sherwood Approach's safe
+// room (dungeonIndex 0) lets anyone currently here through — no family
+// requirement on the first dungeon. Every dungeon beyond it also needs
+// all 4 family accounts online before the exit actually works; standing
+// at it otherwise just sets `waitingForFamily` so clients know why nothing
+// happened yet, and it keeps re-checking every tick without needing a
+// separate retry timer.
+function tickSafeRoom(){
+  if(!currentRoom().safe){ waitingForFamily = false; return; }
+  const someoneAtExit = Object.values(players).some(p =>
+    !p.dead && Math.hypot(p.x - SAFE_EXIT_X, p.y - SAFE_EXIT_Y) < SAFE_EXIT_RADIUS);
+  if(!someoneAtExit){ waitingForFamily = false; return; }
+  if(dungeonIndex > 0 && !familyFullyConnected()){
+    waitingForFamily = true;
+    return;
+  }
+  waitingForFamily = false;
+  loadRoom(1);
 }
 
 // ---------- MONSTER AI ----------
@@ -709,7 +720,10 @@ function broadcastState(){
     roomId: currentRoomId(),
     dungeonName: currentDungeon().name,
     boss: !!currentRoom().boss,
+    safe: !!currentRoom().safe,
+    safeExit: { x: SAFE_EXIT_X, y: SAFE_EXIT_Y, r: SAFE_EXIT_RADIUS },
     victory,
+    waitingForFamily,
     players: Object.values(players),
     monsters: Object.values(monsters),
     projectiles,
@@ -733,6 +747,7 @@ setInterval(()=>{
     tickMonsters(dt);
     tickProjectiles(dt);
     tickLoot();
+    tickSafeRoom();
   }
   broadcastState();
 }, TICK_MS);

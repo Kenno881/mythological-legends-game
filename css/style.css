@@ -68,13 +68,6 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 #loginPinPanel{display:flex;flex-direction:column;align-items:center;}
 #pinInput,#pinConfirmInput{font-size:22px;letter-spacing:8px;}
 
-#musterList{display:flex;flex-direction:column;gap:8px;max-width:280px;margin-bottom:24px;width:100%;}
-.muster-entry{display:flex;justify-content:space-between;align-items:center;background:rgba(20,15,8,.72);
-  border:2px solid var(--gold);border-radius:6px;padding:8px 14px;font-variant:small-caps;letter-spacing:.5px;}
-.muster-entry.ready{border-color:#5ac26a;}
-.muster-entry.absent{opacity:.45;border-color:#8a8a86;}
-.muster-status{font-size:12px;}
-
 #hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;
   padding:10px 14px;pointer-events:none;font-size:13px;color:var(--parchment);text-shadow:1px 1px 2px #000;}
 .bar-wrap{width:150px;height:14px;background:#000a;border:1px solid var(--ink);border-radius:3px;overflow:hidden;margin-top:2px;}

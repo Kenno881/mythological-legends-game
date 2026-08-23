@@ -53,10 +53,18 @@ beyond the session they happen in.
 ### Working and deployed
 - Node/`ws` server, 20Hz authoritative tick, deployed on Railway.
 - Passphrase gate on the WebSocket connection, remembered client-side.
-- Real login — 5 reserved accounts (Dad, Mum, Amelia, Declan + a
-  muster-exempt `test` account), 4-digit PIN self-set on first login,
-  remembered per-device thereafter. Permanent per-account class choice.
-  Party muster screen gates entry until all 4 family accounts are ready.
+- Real login — 5 reserved accounts (Dad, Mum, Amelia, Declan + a `test`
+  account exempt from the party gate below), 4-digit PIN self-set on
+  first login, remembered per-device thereafter. Permanent per-account
+  class choice.
+- Every dungeon opens into a safe room — no monsters, a torch-lit visual
+  break from the danger rooms ahead — with a glowing exit gate the party
+  walks into together once everyone who's coming is actually there. On
+  Sherwood Approach (the first dungeon) that gate always opens — solo or
+  any subset can start immediately. Every dungeon beyond it also requires
+  all 4 family accounts online before the gate opens *(replaces the
+  earlier login-time "muster" screen, removed 2026-08-23 — the family
+  gate belongs on later dungeons, not on getting into the game at all)*.
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
   server restart.
@@ -311,19 +319,25 @@ framing, §10).
 **Party is a fixed roster of four.** Not inferred, not managed as a list —
 the family's four accounts *are* the roster.
 
-**Party "muster" before any dungeon.** Rather than jumping straight into a
-dungeon, logged-in players land in a shared staging screen: who's
-currently connected, their character name/class/level, and a Ready toggle.
-Has to be exactly as simple as gameplay itself, since it's the thing that
-decides whether a kid can actually start playing unsupervised — one
-obvious button, not a menu to navigate.
+**Safe room, not a login screen — decided, revised 2026-08-23.** The
+gate belongs at the *start of a dungeon*, not on getting into the game at
+all. An earlier build (2026-08-23, same day) put a "party muster" staging
+*screen* between login and any gameplay — that blocked solo/partial play
+entirely and was removed the same day it shipped, once it became clear
+the gate was meant for the dungeons beyond the first, not for playing at
+all. What's built now: every dungeon opens into an in-world **safe
+room** — no monsters, players can actually see each other there — with a
+glowing exit gate that leads into the first real chamber. Walking into it
+is the "let's go" moment, in the world rather than a menu.
 
-**Full party (all four) required only for first clears.** A dungeon being
-entered for the first time requires all four accounts present and ready —
-nobody misses the first run of new content. Once a dungeon has been
-cleared at least once, it can be replayed with any subset — solo, farming,
-practice, or catching up. Tracked as a `firstCleared` flag per dungeon at
-the family level, not per character.
+**Full party (all four) required for every dungeon past the first, not
+just first clears — decided, revised 2026-08-23.** Sherwood Approach's
+exit gate always opens; anyone can start it solo or with whoever's
+around. Every dungeon beyond it requires all 4 family accounts online
+before its exit gate opens, every time, not just the first clear — the
+`firstCleared`-flag nuance (full party only for a dungeon's very first
+clear, any subset after) is simpler to revisit later than to get right
+now; see §13.
 
 **Level boosting for catch-up.** Ken's account carries an admin flag,
 enabling a direct level-set action on any character — for someone who
@@ -473,14 +487,16 @@ as-is regardless of the run-model change)*
       class, both permanent) *(done 2026-08-23 — name comes from the
       account, not typed; class is chosen once and never re-picked, even
       after death)*
-- [x] Party "muster" staging screen before entering any dungeon *(done
-      2026-08-23, simplified: applies every session rather than only
-      first clears, no per-dungeon `firstCleared` tracking yet — see
-      Open Decisions)*
+- [x] In-world safe room + exit gate before every dungeon's real chambers
+      *(done 2026-08-23, replacing an earlier login-time "muster" screen
+      shipped and removed the same day — the party gate belongs at a
+      dungeon's start, not at login. Applies every time, not just first
+      clears — see Open Decisions)*
 - [ ] `firstCleared` flag per dungeon (family-wide) — gates the full-party
       (all four accounts) requirement on first clears only; already-cleared
-      dungeons allow any subset *(deferred — muster currently requires all
-      four every session, not just first clears)*
+      dungeons allow any subset *(deferred — the safe-room gate currently
+      requires all four every time on dungeons past the first, not just
+      first clears)*
 - [ ] Admin flag on Ken's account, gating a direct level-set action for
       catch-up *(deferred — nothing to level yet, Phase 3 isn't built)*
 - [x] Remember the connection passphrase client-side too, alongside the
@@ -554,9 +570,10 @@ as-is regardless of the run-model change)*
   manually editing the persisted JSON file; no admin-reset UI exists yet
   (§8a)
 - Whether the roster could ever grow past four (§8a)
-- Whether muster's "all four ready, every session" rule (§8a, shipped
-  2026-08-23) should loosen to "first clear only" once it's actually been
-  played a few times, per §12 Phase 2's original `firstCleared` plan
+- Whether the safe-room party gate's "all four, every time" rule (§8a,
+  shipped 2026-08-23) should loosen to "first clear only" once it's
+  actually been played a few times, per §12 Phase 2's original
+  `firstCleared` plan
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
@@ -588,8 +605,10 @@ as-is regardless of the run-model change)*
   (§8a). **Shipped 2026-08-23.**
 - PIN format: 4 digits, numeric, self-set by each account on its own
   first login rather than pre-assigned (§8a, decided 2026-08-23).
-- Muster requires all four family accounts ready before entering the
-  dungeon, applied every session for now rather than only first clears —
-  simpler to get right for the near-term deadline; loosening it to
-  match §12's original `firstCleared`-only plan is an easy later
-  follow-up (§8a, decided 2026-08-23).
+- The party gate lives at an in-world safe room's exit before each
+  dungeon's real chambers, not a login-time staging screen — Sherwood
+  Approach's exit always opens (solo/any subset), every dungeon beyond
+  it needs all 4 family accounts online, every time, not just first
+  clears. Loosening to match §12's original `firstCleared`-only plan is
+  an easy later follow-up (§8a, revised 2026-08-23 — corrects an
+  earlier same-day version of this decision that gated login itself).

@@ -75,6 +75,7 @@ const DUNGEONS = [
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
     rooms: [
+      { safe: true, enemies: [] },
       { enemies: [
           {type:"bandit", x:420, y:200}, {type:"bandit", x:600, y:400},
           {type:"bandit", x:300, y:500}
@@ -91,6 +92,7 @@ const DUNGEONS = [
     bossIntroText: "A hush falls — the Green Knight rises from the flooded nave",
     bossDefeatText: "The Green Knight yields the exchange! Deeper into the keep...",
     rooms: [
+      { safe: true, enemies: [] },
       { enemies: [
           {type:"zombie", x:400, y:220}, {type:"zombie", x:620, y:420},
           {type:"wraith", x:300, y:480}, {type:"wraith", x:700, y:250}
@@ -107,6 +109,7 @@ const DUNGEONS = [
     bossIntroText: "Mordred himself descends the stair, blade drawn",
     bossDefeatText: "Mordred is cast down! Only the mist-shrouded peak remains...",
     rooms: [
+      { safe: true, enemies: [] },
       { enemies: [
           {type:"direKnight", x:420, y:220}, {type:"darkKnight", x:620, y:420},
           {type:"darkKnight", x:300, y:480}
@@ -125,6 +128,7 @@ const DUNGEONS = [
     finalVictoryTitle: "Camelot is Saved",
     finalVictorySubtitle: "The Round Table stands whole once more. Well fought, champion.",
     rooms: [
+      { safe: true, enemies: [] },
       { enemies: [
           {type:"mistWraith", x:400, y:220}, {type:"mistWraith", x:620, y:420},
           {type:"direKnight", x:300, y:480}

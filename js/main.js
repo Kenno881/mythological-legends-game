@@ -1,13 +1,15 @@
 "use strict";
 
-// Screen navigation, login, and party muster (MASTER_DESIGN.md §8a). Reacts
-// to server messages (welcome, muster, state) to switch screens — it never
-// decides identity/readiness/victory/death itself, only displays them.
+// Screen navigation and login (MASTER_DESIGN.md §8a). Reacts to server
+// messages (welcome, state) to switch screens — it never decides
+// identity/victory/death itself, only displays them. The party gate
+// (whole family required beyond the first dungeon) is server-side and
+// surfaces here only as a "waitingForFamily" banner, not a screen — see
+// onStateUpdate below.
 
 const screens = {
   title: document.getElementById('screen-title'),
   login: document.getElementById('screen-login'),
-  muster: document.getElementById('screen-muster'),
   class: document.getElementById('screen-class'),
   game: document.getElementById('screen-game'),
   end: document.getElementById('screen-end')
@@ -20,9 +22,9 @@ function showScreen(name){
 }
 
 // ---------- CLASS SELECT ----------
-// Only ever shown once per account — see onWelcome/onMuster below, which
-// skip straight past this once an account already has a permanent
-// classKey (§8a: chosen once, never re-picked).
+// Only ever shown once per account — see onWelcome below, which skips
+// straight past this once an account already has a permanent classKey
+// (§8a: chosen once, never re-picked).
 const classGrid = document.getElementById('classGrid');
 Object.entries(CLASSES).forEach(([key, c])=>{
   const div = document.createElement('div');
@@ -93,7 +95,6 @@ document.getElementById('btnBack').addEventListener('click', ()=> showScreen('ti
 // authority on which accounts exist, so an out-of-sync list here would
 // just mean a wrong button, never a security issue.
 const ACCOUNT_NAMES = ['Dad', 'Mum', 'Amelia', 'Declan', 'test'];
-const FAMILY_ACCOUNT_IDS = ['dad', 'mum', 'amelia', 'declan'];
 let selectedUsername = null;
 
 const loginNames = document.getElementById('loginNames');
@@ -155,48 +156,22 @@ function onLoginResult(msg){
 
 // ---------- WELCOME (fires once identity is established — immediately
 // for a remembered device, or right after a successful login) ----------
+// Sherwood Approach (the first dungeon) never gates on the rest of the
+// family — anyone logs straight in, solo or otherwise.
 function onWelcome(msg){
   if(msg.resuming){ showScreen('game'); return; } // already had a live character — drop straight back in
-  if(msg.isTest){
-    if(msg.classKey) joinAs(msg.classKey); else showScreen('class');
-    return;
-  }
-  showScreen('muster');
-}
-
-// ---------- MUSTER ----------
-const musterList = document.getElementById('musterList');
-const btnReady = document.getElementById('btnReady');
-let localReady = false;
-
-btnReady.addEventListener('click', ()=>{
-  localReady = !localReady;
-  sendReady(localReady);
-  btnReady.textContent = localReady ? "Ready! (tap to cancel)" : "I'm Ready!";
-});
-
-function onMuster(msg){
-  if(state !== 'muster') return;
-  musterList.innerHTML = '';
-  FAMILY_ACCOUNT_IDS.forEach(id=>{
-    const connected = msg.connected.includes(id);
-    const ready = msg.ready.includes(id);
-    const label = id.charAt(0).toUpperCase() + id.slice(1);
-    const div = document.createElement('div');
-    div.className = 'muster-entry' + (ready ? ' ready' : '') + (!connected ? ' absent' : '');
-    div.innerHTML = `<span>${label}</span><span class="muster-status">${ready ? 'Ready!' : connected ? 'Waiting…' : 'Not here'}</span>`;
-    musterList.appendChild(div);
-  });
-
-  const allFamilyReady = FAMILY_ACCOUNT_IDS.every(id => msg.ready.includes(id));
-  if(allFamilyReady){
-    if(myClassKey) joinAs(myClassKey); else showScreen('class');
-  }
+  if(msg.classKey) joinAs(msg.classKey); else showScreen('class');
 }
 
 // ---------- REACT TO SERVER STATE ----------
+let lastWaitingForFamily = false;
 function onStateUpdate(s){
   if(state !== 'game') return;
+
+  if(s.waitingForFamily !== lastWaitingForFamily){
+    lastWaitingForFamily = s.waitingForFamily;
+    if(s.waitingForFamily) showBanner("Waiting for the whole family before the next dungeon…");
+  }
 
   const btnRestart = document.getElementById('btnRestart');
 
