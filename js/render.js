@@ -218,6 +218,7 @@ function draw(s){
     }
 
     if(mon.stunTimer > 0){ ctx.fillStyle = "#fff"; ctx.font = "12px Georgia"; ctx.fillText("★", mon.x - 6, visualCenterY - visualRadius - 8); }
+    if(mon.mesmerizeTimer > 0){ ctx.font = "14px Georgia"; ctx.fillText("💤", mon.x - 8, visualCenterY - visualRadius - 8); }
     if(mon.tauntTimer > 0){
       ctx.strokeStyle = "#c94040"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(mon.x, visualCenterY, visualRadius + 4, 0, Math.PI * 2); ctx.stroke();
@@ -277,6 +278,10 @@ function draw(s){
     if(p.buffMult > 1){
       ctx.strokeStyle = "rgba(232,193,74,0.9)"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 10, 0, Math.PI * 2); ctx.stroke();
+    }
+    if(p.hasteMult > 1){
+      ctx.strokeStyle = "rgba(154,91,201,0.85)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 8, 0, Math.PI * 2); ctx.stroke();
     }
     if(p.spawnProtection > 0){
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150);

@@ -137,7 +137,7 @@ function loadRoom(idx){
     monsters[id] = Object.assign({}, t, {
       id, type: e.type, x: e.x, y: e.y, hp: t.hp, maxHp: t.hp, cd: 0,
       slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
-      stunTimer: 0, tauntTimer: 0, tauntTarget: null
+      stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0
     });
   });
   console.log(`[room] ${dungeon.name} — ${room.boss ? 'BOSS' : 'chamber ' + (idx + 1)} (${room.enemies.length} monsters)`);
@@ -369,6 +369,7 @@ function handleMessage(id, msg){
       blockActive: false, blockTimer: 0,
       buffTimer: 0, buffMult: 1,
       spawnProtection: SPAWN_GRACE,
+      hasteMult: 1, hasteTimer: 0,
       dead: false,
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
@@ -484,10 +485,26 @@ function doSpecial(player, slot){
       p.hp = Math.min(p.maxHp, p.hp + sp.heal);
       p.buffMult = sp.buff; p.buffTimer = sp.buffDur;
     }
+  } else if(sp.name === "Mesmerize"){
+    // Hard CC on the nearest enemy — bosses resist it outright (mezzing a
+    // boss indefinitely would trivialize the fight). Breaks early if that
+    // monster takes any damage (see hitMonster), same as classic MMO mez —
+    // discourages AoEing a target you meant to keep locked down.
+    const target = nearestMonster(player);
+    if(target && !target.boss && Math.hypot(target.x - player.x, target.y - player.y) < sp.range){
+      target.mesmerizeTimer = sp.dur;
+    }
+  } else if(sp.name === "Group Haste"){
+    for(const id in players){
+      const p = players[id];
+      if(p.dead) continue;
+      p.hasteMult = sp.mult; p.hasteTimer = sp.dur;
+    }
   }
 }
 
 function hitMonster(mon, dmg, killerId){
+  mon.mesmerizeTimer = 0; // any damage breaks Mesmerize
   mon.hp -= dmg;
   if(mon.hp <= 0 && mon.alive){
     mon.alive = false;
@@ -563,6 +580,7 @@ function tickMonsters(dt){
     if(!mon.alive) continue;
     allDead = false;
     if(mon.stunTimer > 0){ mon.stunTimer -= dt; continue; }
+    if(mon.mesmerizeTimer > 0){ mon.mesmerizeTimer -= dt; continue; }
     if(mon.tauntTimer > 0) mon.tauntTimer -= dt;
 
     const target = pickTarget(mon);
@@ -636,8 +654,8 @@ function tickPlayers(dt){
 
     const { mx, my } = movementVector(p.keys);
     if(mx !== 0 || my !== 0){
-      p.x += mx * p.speed * dt;
-      p.y += my * p.speed * dt;
+      p.x += mx * p.speed * p.hasteMult * dt;
+      p.y += my * p.speed * p.hasteMult * dt;
     }
     p.x = Math.max(p.radius, Math.min(W - p.radius, p.x));
     p.y = Math.max(p.radius + 60, Math.min(H - p.radius, p.y));
@@ -647,6 +665,7 @@ function tickPlayers(dt){
     if(p.maxMana) p.mana = Math.min(p.maxMana, p.mana + c.manaRegen * dt);
     if(p.blockTimer > 0){ p.blockTimer -= dt; if(p.blockTimer <= 0) p.blockActive = false; }
     if(p.buffTimer > 0){ p.buffTimer -= dt; if(p.buffTimer <= 0) p.buffMult = 1; }
+    if(p.hasteTimer > 0){ p.hasteTimer -= dt; if(p.hasteTimer <= 0) p.hasteMult = 1; }
     if(p.spawnProtection > 0) p.spawnProtection = Math.max(0, p.spawnProtection - dt);
   }
 }

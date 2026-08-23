@@ -43,6 +43,19 @@ const CLASSES = {
     special1:{name:"Healing Light", cd:3, heal:32, cost:20},
     special2:{name:"Blessing", cd:14, heal:22, buff:1.3, buffDur:8, cost:55},
     hasMana:true, maxMana:100, manaRegen:8
+  },
+  enchanter: {
+    name: "Enchanter", tag: "Complex — crowd control",
+    desc1: "Mesmerize a foe out of the fight, then speed the party up.",
+    desc2: "Control the battlefield instead of just hitting harder.",
+    color:"#9a5bc9", hp:70, speed:190, radius:14,
+    sprite: "assets/sprites/enchanter.png",
+    attack:{dmg:8, range:260, cd:0.5, cost:6, projectile:true},
+    // Single-target hard CC — locks one non-boss enemy out of the fight
+    // entirely until it's hit (breaks the mez) or the duration runs out.
+    special1:{name:"Mesmerize", cd:8, dur:5, cost:30, range:260},
+    special2:{name:"Group Haste", cd:16, dur:10, mult:1.3, cost:45},
+    hasMana:true, maxMana:90, manaRegen:8
   }
 };
 

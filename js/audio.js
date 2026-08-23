@@ -107,6 +107,14 @@ function sfxCastHeal(){ // soft ascending chime
 function sfxCastGeneric(){
   tone(400, { type: 'triangle', dur: 0.16, gain: 0.3, freqEnd: 700 });
 }
+function sfxCastMesmerize(){ // soft, sparkly, descending — puts something "to sleep"
+  tone(1200, { type: 'sine', dur: 0.35, gain: 0.22, freqEnd: 500 });
+  tone(1800, { type: 'sine', dur: 0.25, gain: 0.14, delay: 0.06, freqEnd: 700 });
+}
+function sfxCastHaste(){ // quick energetic upward whoosh
+  tone(500, { type: 'sawtooth', dur: 0.22, gain: 0.22, freqEnd: 1400 });
+  tone(700, { type: 'triangle', dur: 0.18, gain: 0.18, delay: 0.05, freqEnd: 1600 });
+}
 
 // Keyed by ability display name (CLASSES[...].special1/2.name) so each
 // class's abilities get a flavor matching what they actually do, rather
@@ -117,7 +125,9 @@ const CAST_SFX_BY_ABILITY = {
   "Taunt": sfxCastTaunt,
   "Arcane Nova": sfxCastArcane,
   "Healing Light": sfxCastHeal,
-  "Blessing": sfxCastHeal
+  "Blessing": sfxCastHeal,
+  "Mesmerize": sfxCastMesmerize,
+  "Group Haste": sfxCastHaste
 };
 
 function sfxSlamTelegraph(){
