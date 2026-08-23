@@ -6,11 +6,20 @@
 // combat, and monster AI are all server-side; this file only relays input
 // out and state in.
 
-const SERVER_URL = "ws://localhost:3000";
-// Same-machine testing only, matching the server's local-dev fallback port
-// (process.env.PORT || 3000). To test from a second device on the LAN, point
-// this at the server machine's LAN IP instead, e.g. "ws://192.168.1.23:3000".
-// Once deployed (e.g. on Railway), this should point at the deployed wss:// URL.
+// Local dev talks to the server on this machine; anything else — the
+// deployed site, or the HTML opened straight from disk via file:// — talks
+// to the deployed Railway server. No build step or env var, just a runtime
+// check of what page loaded this script.
+const LOCAL_SERVER_URL = "ws://localhost:3000";
+// Matches the server's local-dev fallback port (process.env.PORT || 3000).
+// To test from a second device on the LAN, temporarily point this at the
+// server machine's LAN IP instead, e.g. "ws://192.168.1.23:3000".
+
+const PRODUCTION_SERVER_URL = "wss://mythological-legends-game-production.up.railway.app";
+
+const isLocalHost = ['localhost', '127.0.0.1', ''].includes(location.hostname);
+const SERVER_URL = isLocalHost ? LOCAL_SERVER_URL : PRODUCTION_SERVER_URL;
+console.log(`[net] ${isLocalHost ? 'local' : 'production'} mode — connecting to ${SERVER_URL}`);
 
 let ws = null;
 let myId = null;
