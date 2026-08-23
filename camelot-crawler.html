@@ -36,11 +36,24 @@
     </div>
   </div>
 
-  <!-- CLASS SELECT -->
-  <div id="screen-class" class="screen hidden">
-    <div class="title-plate" style="font-size:26px;">Choose Your Champion</div>
-    <div class="class-grid" id="classGrid"></div>
-    <button class="btn secondary" id="btnBack">Back</button>
+  <!-- CHARACTER ROSTER (up to 4 per account, pick one per run — §8a) -->
+  <div id="screen-characters" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Your Champions</div>
+
+    <div id="rosterList" class="class-grid"></div>
+
+    <div id="createClassPanel" class="hidden">
+      <div class="title-plate" style="font-size:18px;">Choose a Class</div>
+      <div class="class-grid" id="createClassGrid"></div>
+      <button class="btn secondary" id="btnCreateClassBack">Back</button>
+    </div>
+
+    <div id="createGenderPanel" class="hidden">
+      <div class="subtitle">Choose an appearance</div>
+      <button class="btn" id="btnGenderMale">Male</button>
+      <button class="btn" id="btnGenderFemale">Female</button>
+      <button class="btn secondary" id="btnCreateGenderBack">Back</button>
+    </div>
   </div>
 
   <!-- GAME -->
@@ -56,6 +69,11 @@
         <div id="classLabel"></div>
         <div id="gearLabel"><img id="gearIcon" class="hidden" alt=""><span id="gearLabelText">Gear: Iron</span></div>
       </div>
+    </div>
+    <button id="btnLeave" type="button">Leave</button>
+    <div id="fallenOverlay" class="hidden">
+      <div class="fallen-text">Fallen — a teammate needs to revive you</div>
+      <div class="fallen-bar-wrap"><div class="fallen-bar" id="reviveBar"></div></div>
     </div>
     <div id="banner"></div>
     <div id="loot-toast"></div>

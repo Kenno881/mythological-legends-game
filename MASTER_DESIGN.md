@@ -45,13 +45,14 @@ beyond the session they happen in.
    structures (a new dungeon entry, a new enemy type) before it justifies new
    engine code. Keep the class/enemy/dungeon tables as the single source of
    truth shared between server and client (`js/data.js`).
-5. **Real risk of not succeeding — added 2026-08-23.** A dungeon has to be
-   an actual challenge, not a guaranteed win with extra steps — the family
-   should be able to fail a run. Not impossible, though: difficulty should
-   sit in a band where losing occasionally is part of the fun, not a wall
-   that stops a young child from ever finishing. Concrete mechanics (a real
-   wipe/fail state, difficulty tuning, what "failing" even means for a
-   world that currently has no wipe condition at all) are open — see §9.
+5. **Real risk of not succeeding — added 2026-08-23, shipped same day.** A
+   dungeon has to be an actual challenge, not a guaranteed win with extra
+   steps — the family should be able to fail a run. Not impossible, though:
+   difficulty should sit in a band where losing occasionally is part of the
+   fun, not a wall that stops a young child from ever finishing. **Now
+   real**: a fallen player can be revived by a teammate, but a full party
+   wipe resets the current dungeon back to its safe room and a difficulty
+   pass makes that an actual possibility — see §9.
 
 ---
 
@@ -62,8 +63,34 @@ beyond the session they happen in.
 - Passphrase gate on the WebSocket connection, remembered client-side.
 - Real login — 5 reserved accounts (Dad, Mum, Amelia, Declan + a `test`
   account exempt from the party gate below), 4-digit PIN self-set on
-  first login, remembered per-device thereafter. Permanent per-account
-  class choice.
+  first login, remembered per-device thereafter.
+- **Character roster (revised 2026-08-23 — supersedes the earlier
+  "permanent class choice" decision below).** Each account saves up to
+  4 characters (class + gender), picked before each run instead of
+  being locked to whichever class was created first. Deletable to free
+  a slot. Gender is stored now; actual male/female sprite art is a
+  content follow-up — falls back to the existing single sprite per
+  class until then.
+- **Revive & wipe (2026-08-23) — makes Pillar 5 real.** A fallen
+  player isn't a dead end: any alive, connected teammate who stands
+  near them for ~4 seconds revives them at partial HP with a brief
+  immunity window (leaving range resets the channel). If nobody
+  connected is left alive, the party wipes — after a short beat, the
+  whole dungeon resets to its own safe room at full HP, not a
+  character/account reset and not a trip to the title screen.
+- **Leave & restart (2026-08-23).** A "Leave" button during a run logs
+  just that player out cleanly to the title screen without disrupting
+  teammates still playing. If they're the only one connected, leaving
+  also resets the dungeon to its safe room, since nothing would
+  otherwise be left running with no one there.
+- **Difficulty pass (2026-08-23).** `ENEMY_TYPES` HP/damage bumped
+  across the board (~+20-25% HP on trash, ~+15% on bosses, ~+10-15%
+  damage everywhere) so revive/wipe actually matters — a full family of
+  four should have to work for a clear, not steamroll it.
+- Sprites render larger on small screens (`radius * 6` draw size, up
+  from `radius * 4.5`) plus a portrait-mode "rotate your device" hint
+  on phones — the fixed 4:3 game canvas letterboxes hard on a narrow
+  portrait screen (2026-08-23).
 - Every dungeon opens into a safe room — no monsters, a torch-lit visual
   break from the danger rooms ahead — with a glowing exit gate the party
   walks into together once everyone who's coming is actually there. On
@@ -323,9 +350,17 @@ switching accounts on a shared one.
 **PINs stored hashed, not plaintext** — cheap to do correctly from the
 start, no reason not to.
 
-**Character creation, once per account, immediately after first login.**
-Name + class — both genuinely permanent (decided — matches the D&D-campaign
-framing, §10).
+**Character roster, up to 4 per account — revised 2026-08-23, supersedes
+the earlier "one permanent character" decision.** The original plan was
+name + class chosen once, forever, matching the D&D-campaign framing
+(§10). In practice that meant no way to try a different class without
+losing everything on the first one, so accounts now hold a roster of up
+to 4 saved characters (class + gender each), picked fresh before every
+run from a character-select screen between login and the safe room.
+Deletable to free a slot when the cap's hit. Character *level/gear*
+(once §10/§11 land) stays permanent per saved character — this change
+is about how many characters an account can have, not about
+re-introducing respec within one.
 
 **Party is a fixed roster of four.** Not inferred, not managed as a list —
 the family's four accounts *are* the roster.
@@ -401,20 +436,33 @@ dungeon, is unstarted. **This is optional extra risk a player chooses,
 not the mandatory wipe condition Pillar 5 below is actually asking for**
 — the main path is exactly as failure-free as it always was.
 
-**A run has to be able to fail — added 2026-08-23, see Pillar 5.** Right
-now there's no wipe condition at all: dying just costs a brief respawn
-(spawn protection covers the walk back in), and a dungeon can't actually
-be lost. That's not really a "challenge" — it's a inconvenience. Needs a
-real fail state before this pillar is true rather than aspirational; see
-Open questions below.
+**A run has to be able to fail — added 2026-08-23, shipped same day, see
+Pillar 5.** Dying now leaves a player fallen, not respawned — they need
+an alive teammate to walk over and revive them (a few seconds' channel,
+interrupted by leaving range). If the whole party is down with nobody
+connected left standing, the dungeon wipes: a short beat, then everyone
+resets to that dungeon's safe room at full HP. A real fail state, not
+just an inconvenience, without being a hard account/character reset.
 
 **Open questions:**
 - Primary escalation driver: run time, kill count, or both?
 - Exact level thresholds per dungeon (§5).
-- What "failing a dungeon" actually means mechanically — a full-party
-  wipe kicks everyone back to town/the safe room and the run resets? A
-  death limit (e.g. 3 party deaths and the run ends)? A timer that can run
-  out? Needs picking before Pillar 5 is more than a stated goal.
+- Whether a wipe should ever cost something beyond lost time (a death
+  counter, a run-time penalty) — currently a wipe is "try the same
+  dungeon again from its safe room," no other consequence.
+
+**Logged for later, not built (2026-08-23):**
+- **Phaser for animation.** The client is currently raw canvas draw
+  calls (`js/render.js`) — flagged as worth moving to Phaser down the
+  track for real sprite animation (walk cycles, attack swings) instead
+  of static sprites snapping between states. No code written yet;
+  noting it here so the direction isn't lost.
+- **Scrolling dungeons.** Rooms currently render at a fixed camera —
+  the whole room fits on screen at once. A real scrolling
+  camera/viewport (rooms bigger than the screen, camera follows the
+  party) is wanted eventually, tracked here as future work on top of
+  whatever the maze/room system looks like once §9's escalation
+  mechanics land.
 
 ---
 
@@ -580,6 +628,17 @@ as-is regardless of the run-model change)*
 - [x] Remember the connection passphrase client-side too, alongside the
       logged-in account, so kids aren't retyping either credential each
       session
+- [x] Character roster (up to 4 per account, pick one per run, deletable)
+      *(done 2026-08-23 — supersedes the earlier "one permanent character"
+      plan, see §8a)*
+- [x] Revive/wipe mechanic — a fallen player needs a nearby teammate to
+      channel them back up; a full wipe resets the dungeon to its safe
+      room *(done 2026-08-23, see §9)*
+- [x] Leave & restart — a "Leave" button logs out cleanly without
+      disrupting teammates; leaving while solo also resets the dungeon
+      *(done 2026-08-23)*
+- [x] Enemy difficulty pass so revive/wipe has real teeth *(done
+      2026-08-23, see §3)*
 
 **Phase 3 — Permanent leveling + in-run boons**
 - [ ] Permanent XP/level system (never resets)
@@ -629,9 +688,8 @@ as-is regardless of the run-model change)*
 - **Where Arc I climaxes** — reorder Mordred's Keep to be last, or add
   Camlann as a 5th capstone dungeon (§5). Leaning toward Camlann.
 - Primary escalation driver: run time, kill count, or both? (§9)
-- What "failing a dungeon" means mechanically — wipe condition, death
-  limit, timer? Nothing currently stops a run from being unlosable (§2
-  Pillar 5, §9)
+- Whether a wipe should ever cost more than lost time (a death counter,
+  a time penalty) beyond "try the dungeon again from its safe room" (§9)
 - Skill loadouts (§10a): the 4th loadout slot's category, whether a
   loadout locks for a whole run or can be re-picked, how it interacts
   with gear/boons, and whether to retrofit the 4 existing classes or only
@@ -662,6 +720,9 @@ as-is regardless of the run-model change)*
   shipped 2026-08-23) should loosen to "first clear only" once it's
   actually been played a few times, per §12 Phase 2's original
   `firstCleared` plan
+- Whether the ~15-minute-per-dungeon target is actually being hit now
+  that the difficulty pass and revive/wipe are live — needs a real
+  playtest to judge, not a guess (§9)
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
@@ -700,3 +761,11 @@ as-is regardless of the run-model change)*
   clears. Loosening to match §12's original `firstCleared`-only plan is
   an easy later follow-up (§8a, revised 2026-08-23 — corrects an
   earlier same-day version of this decision that gated login itself).
+- Character choice is no longer permanent-once-ever — accounts now hold
+  a roster of up to 4 saved characters (class + gender), picked before
+  each run, deletable to free a slot. Supersedes the original
+  one-permanent-character plan (§8a, revised 2026-08-23).
+- A run can genuinely fail: revive (teammate channels a fallen player
+  back up) and wipe (whole party down resets the dungeon to its safe
+  room) are both shipped, making Pillar 5 real rather than aspirational
+  (§2, §9, decided and shipped 2026-08-23).

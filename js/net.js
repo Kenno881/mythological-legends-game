@@ -41,7 +41,7 @@ function getSavedPassphrase(){ return localStorage.getItem(PASSPHRASE_KEY) || ''
 
 let ws = null;
 let myId = null;
-let myClassKey = null; // this account's permanent class, once known (null until the account's first join)
+let myCharacters = []; // this account's saved roster (max 4, §8a) — from 'welcome' and refreshed by 'characterList'
 let myIsTest = false;
 let resuming = false; // did this connection reattach to an existing character?
 let connStatus = "idle"; // "idle" | "connecting" | "open" | "closed"
@@ -104,7 +104,7 @@ function attemptConnect(passphrase){
       if(msg.type === 'welcome'){
         myId = msg.id;
         resuming = !!msg.resuming;
-        myClassKey = msg.classKey || null;
+        myCharacters = msg.characters || [];
         myIsTest = !!msg.isTest;
         console.log(`[net] welcome, id = ${myId}${resuming ? ' (resuming existing character)' : ''}`);
         clearTimeout(timeout);
@@ -113,6 +113,12 @@ function attemptConnect(passphrase){
       } else if(msg.type === 'loginResult'){
         if(msg.ok) setAccountId(msg.accountId);
         if(typeof onLoginResult === 'function') onLoginResult(msg);
+      } else if(msg.type === 'characterList'){
+        myCharacters = msg.characters || [];
+        if(typeof onCharacterList === 'function') onCharacterList(msg);
+      } else if(msg.type === 'leftDungeon'){
+        myId = null; resuming = false; latestState = null;
+        if(typeof onLeftDungeon === 'function') onLeftDungeon();
       } else if(msg.type === 'state'){
         latestState = msg;
         if(typeof onAudioState === 'function') onAudioState(msg);
@@ -128,9 +134,27 @@ function sendLogin(username, pin){
   return true;
 }
 
-function sendJoin(classKey){
+function sendCreateCharacter(classKey, gender){
   if(!ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify({ type: 'join', classKey }));
+  ws.send(JSON.stringify({ type: 'createCharacter', classKey, gender }));
+  return true;
+}
+
+function sendDeleteCharacter(characterId){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'deleteCharacter', characterId }));
+  return true;
+}
+
+function sendJoin(characterId){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'join', characterId }));
+  return true;
+}
+
+function sendLeaveDungeon(){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'leaveDungeon' }));
   return true;
 }
 

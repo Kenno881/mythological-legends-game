@@ -1,16 +1,16 @@
 "use strict";
 
-// Screen navigation and login (MASTER_DESIGN.md §8a). Reacts to server
-// messages (welcome, state) to switch screens — it never decides
-// identity/victory/death itself, only displays them. The party gate
-// (whole family required beyond the first dungeon) is server-side and
-// surfaces here only as a "waitingForFamily" banner, not a screen — see
-// onStateUpdate below.
+// Screen navigation, login, and character roster (MASTER_DESIGN.md §8a).
+// Reacts to server messages (welcome, characterList, state) to switch
+// screens — it never decides identity/victory/death/revive itself, only
+// displays them. The party gate (whole family required beyond the first
+// dungeon) is server-side and surfaces here only as a "waitingForFamily"
+// banner, not a screen — see onStateUpdate below.
 
 const screens = {
   title: document.getElementById('screen-title'),
   login: document.getElementById('screen-login'),
-  class: document.getElementById('screen-class'),
+  characters: document.getElementById('screen-characters'),
   game: document.getElementById('screen-game'),
   end: document.getElementById('screen-end')
 };
@@ -21,21 +21,95 @@ function showScreen(name){
   state = name;
 }
 
-// ---------- CLASS SELECT ----------
-// Only ever shown once per account — see onWelcome below, which skips
-// straight past this once an account already has a permanent classKey
-// (§8a: chosen once, never re-picked).
-const classGrid = document.getElementById('classGrid');
+// ---------- CHARACTER ROSTER (up to 4 per account, pick one per run) ----------
+const rosterList = document.getElementById('rosterList');
+const createClassPanel = document.getElementById('createClassPanel');
+const createGenderPanel = document.getElementById('createGenderPanel');
+let pendingClassKey = null; // set once a class is chosen while creating a new character, cleared after
+
+function showRosterPanel(){
+  rosterList.classList.remove('hidden');
+  createClassPanel.classList.add('hidden');
+  createGenderPanel.classList.add('hidden');
+  renderRoster();
+}
+
+function renderRoster(){
+  rosterList.innerHTML = '';
+  myCharacters.forEach(ch=>{
+    const c = CLASSES[ch.classKey];
+    const div = document.createElement('div');
+    div.className = 'class-card roster-card';
+    div.innerHTML = `<h3>${c ? c.name : ch.classKey}</h3>
+      <p>${ch.gender ? ch.gender.charAt(0).toUpperCase() + ch.gender.slice(1) : 'Unspecified'}</p>
+      <button class="btn secondary roster-delete" type="button">Delete</button>`;
+    div.addEventListener('click', (e)=>{
+      if(e.target.classList.contains('roster-delete')) return; // handled separately below
+      playCharacter(ch.id);
+    });
+    div.querySelector('.roster-delete').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      sendDeleteCharacter(ch.id);
+    });
+    rosterList.appendChild(div);
+  });
+  if(myCharacters.length < 4){
+    const div = document.createElement('div');
+    div.className = 'class-card roster-card roster-create';
+    div.innerHTML = `<h3>+ New Character</h3>`;
+    div.addEventListener('click', ()=>{
+      rosterList.classList.add('hidden');
+      createClassPanel.classList.remove('hidden');
+    });
+    rosterList.appendChild(div);
+  }
+}
+
+const createClassGrid = document.getElementById('createClassGrid');
 Object.entries(CLASSES).forEach(([key, c])=>{
   const div = document.createElement('div');
   div.className = 'class-card';
   div.innerHTML = `<h3>${c.name}</h3><p>${c.desc1}</p><p>${c.desc2}</p><span class="tag">${c.tag}</span>`;
-  div.addEventListener('click', ()=> joinAs(key));
-  classGrid.appendChild(div);
+  div.addEventListener('click', ()=>{
+    pendingClassKey = key;
+    createClassPanel.classList.add('hidden');
+    createGenderPanel.classList.remove('hidden');
+  });
+  createClassGrid.appendChild(div);
 });
 
-function joinAs(classKey){
-  if(sendJoin(classKey)) showScreen('game');
+document.getElementById('btnCreateClassBack').addEventListener('click', showRosterPanel);
+document.getElementById('btnCreateGenderBack').addEventListener('click', ()=>{
+  createGenderPanel.classList.add('hidden');
+  createClassPanel.classList.remove('hidden');
+});
+// New character created — auto-play it immediately rather than making the
+// player tap it again from the roster. Any other roster refresh (a
+// delete, or the initial fetch) just re-renders the roster panel in
+// place. justCreated is set right before the create request goes out so
+// onCharacterList (the reply) knows which case it's handling.
+let justCreated = false;
+['male', 'female'].forEach(gender=>{
+  document.getElementById('btnGender' + gender.charAt(0).toUpperCase() + gender.slice(1))
+    .addEventListener('click', ()=>{
+      justCreated = true;
+      sendCreateCharacter(pendingClassKey, gender);
+      pendingClassKey = null;
+    });
+});
+
+function onCharacterList(msg){
+  if(justCreated){
+    justCreated = false;
+    const newest = myCharacters[myCharacters.length - 1];
+    if(newest) playCharacter(newest.id);
+    return;
+  }
+  if(state === 'characters') showRosterPanel();
+}
+
+function playCharacter(characterId){
+  if(sendJoin(characterId)) showScreen('game');
   else console.warn('[main] not connected yet — try again in a moment');
 }
 
@@ -46,14 +120,22 @@ const passphraseError = document.getElementById('passphraseError');
 passphraseInput.value = getSavedPassphrase(); // remembered per-device, same idea as the account login below
 
 async function handleBeginQuest(){
-  if(ws && ws.readyState === WebSocket.OPEN){
-    // Already connected (e.g. clicking through again from the end screen)
-    // — no need to re-authenticate, just land wherever this character
-    // actually belongs right now.
+  if(ws && ws.readyState === WebSocket.OPEN && myId){
+    // Already connected and identified (e.g. clicking through again after
+    // a victory) — no need to re-authenticate.
     const me = myPlayer();
-    if(me && !me.dead) showScreen('game');
-    else if(myClassKey) joinAs(myClassKey);
-    else showScreen('class');
+    if(me){
+      showScreen('game'); // still has a live entry (alive or fallen) — drop back in, fallen overlay handles the rest
+    } else {
+      showRosterPanel();
+      showScreen('characters');
+    }
+    return;
+  }
+  if(ws && ws.readyState === WebSocket.OPEN && !myId){
+    // Connected but unidentified — e.g. right after leaving a dungeon, the
+    // same socket is still open but needs a fresh login.
+    showScreen('login');
     return;
   }
 
@@ -83,11 +165,6 @@ btnStart.addEventListener('click', handleBeginQuest);
 passphraseInput.addEventListener('keydown', e=>{
   if(e.key === 'Enter') handleBeginQuest();
 });
-
-document.getElementById('btnBack').addEventListener('click', ()=> showScreen('title'));
-// Reaching "end" means this character is dead or the quest is won; the
-// restart button below (btnRestart) handles routing back in from there —
-// picking a class again is now only ever a brand-new account's job.
 
 // ---------- LOGIN (MASTER_DESIGN.md §8a) ----------
 // Exactly 5 reserved names, matching server.js's ACCOUNTS — this list is
@@ -160,11 +237,21 @@ function onLoginResult(msg){
 // family — anyone logs straight in, solo or otherwise.
 function onWelcome(msg){
   if(msg.resuming){ showScreen('game'); return; } // already had a live character — drop straight back in
-  if(msg.classKey) joinAs(msg.classKey); else showScreen('class');
+  showRosterPanel();
+  showScreen('characters');
+}
+
+function onLeftDungeon(){
+  // Same connection, now unidentified server-side — needs a fresh login
+  // rather than a reconnect, same as server.js's leaveDungeon handling.
+  showScreen('login');
 }
 
 // ---------- REACT TO SERVER STATE ----------
 let lastWaitingForFamily = false;
+const fallenOverlay = document.getElementById('fallenOverlay');
+const reviveBar = document.getElementById('reviveBar');
+
 function onStateUpdate(s){
   if(state !== 'game') return;
 
@@ -173,30 +260,30 @@ function onStateUpdate(s){
     if(s.waitingForFamily) showBanner("Waiting for the whole family before the next dungeon…");
   }
 
-  const btnRestart = document.getElementById('btnRestart');
-
   if(s.victory){
     const d = DUNGEONS[DUNGEONS.length - 1];
     showScreen('end');
     document.getElementById('endTitle').textContent = d.finalVictoryTitle;
     document.getElementById('endSubtitle').textContent = d.finalVictorySubtitle;
-    btnRestart.textContent = 'Return to Camelot';
     return;
   }
 
+  // Death no longer leaves the game screen — a dead player stays here,
+  // watching for a teammate to revive them (or the whole party wipes and
+  // resets, server-side) — see the fallen overlay below.
   const me = myPlayer();
   if(me && me.dead){
-    showScreen('end');
-    document.getElementById('endTitle').textContent = "Fallen at " + s.dungeonName;
-    document.getElementById('endSubtitle').textContent = "Gather your courage — the quest awaits another try.";
-    // Class is permanent (§8a) — dying rejoins straight back in as the same
-    // class rather than routing back through class-select.
-    btnRestart.textContent = myClassKey ? 'Rejoin the Fight' : 'Return to Camelot';
+    fallenOverlay.classList.remove('hidden');
+    const pct = Math.min(100, (me.reviveProgress / REVIVE_CHANNEL_SECONDS) * 100);
+    reviveBar.style.width = pct + '%';
+  } else {
+    fallenOverlay.classList.add('hidden');
   }
 }
 
-document.getElementById('btnRestart').addEventListener('click', ()=>{
-  const me = myPlayer();
-  if(me && me.dead && myClassKey) joinAs(myClassKey);
-  else showScreen('title');
+document.getElementById('btnRestart').addEventListener('click', ()=> showScreen('title'));
+
+// ---------- LEAVE DUNGEON ----------
+document.getElementById('btnLeave').addEventListener('click', ()=>{
+  sendLeaveDungeon();
 });

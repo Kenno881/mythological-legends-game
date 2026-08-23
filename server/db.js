@@ -55,6 +55,18 @@ try {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   state = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   if(!state.accounts) state.accounts = {}; // back-compat: DB files written before accounts existed
+  // back-compat: accounts written before the character roster existed had
+  // a single permanent `classKey` — fold it into a one-item roster instead
+  // of losing it (gender unknown for anything created before gender existed).
+  for(const id in state.accounts){
+    const acct = state.accounts[id];
+    if(!acct.characters){
+      acct.characters = acct.classKey
+        ? [{ id: 'char_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), classKey: acct.classKey, gender: null, createdAt: acct.createdAt || Date.now() }]
+        : [];
+      delete acct.classKey;
+    }
+  }
   console.log(`[db] loaded existing state (${Object.keys(state.players || {}).length} known players)`);
 } catch (err) {
   if(err.code === 'ENOENT'){
@@ -162,7 +174,7 @@ function hashPin(pin, salt){
 function verifyOrClaimPin(id, pin){
   let acct = state.accounts[id];
   if(!acct){
-    acct = state.accounts[id] = { pinHash: null, pinSalt: null, classKey: null, createdAt: Date.now() };
+    acct = state.accounts[id] = { pinHash: null, pinSalt: null, characters: [], createdAt: Date.now() };
   }
   if(!acct.pinHash){
     // First-ever login for this account — the submitted PIN becomes its PIN.
@@ -182,17 +194,45 @@ function verifyOrClaimPin(id, pin){
   return { ok: true, isNewClaim: false };
 }
 
-// Permanent class choice for an account (MASTER_DESIGN.md §8a — chosen
-// once, remembered forever). Returns null until the account's first join.
-function getAccountClass(id){
+// ---------- CHARACTER ROSTER ----------
+// Up to 4 saved characters per account, picked fresh at the start of
+// each run rather than one permanent class forever — see js/main.js's
+// character-select screen. `gender` is nullable: unset until the player
+// actually picks one, and unset for characters migrated from before
+// gender existed at all (see the back-compat loop above).
+const MAX_CHARACTERS = 4;
+
+function getCharacters(id){
   const acct = state.accounts[id];
-  return acct ? acct.classKey : null;
+  return acct ? acct.characters.slice() : [];
 }
 
-function saveAccountClass(id, classKey){
-  const acct = state.accounts[id] || (state.accounts[id] = { pinHash: null, pinSalt: null, classKey: null, createdAt: Date.now() });
-  acct.classKey = classKey;
+function getCharacter(id, characterId){
+  const acct = state.accounts[id];
+  if(!acct) return null;
+  return acct.characters.find(c => c.id === characterId) || null;
+}
+
+function createCharacter(id, classKey, gender){
+  const acct = state.accounts[id] || (state.accounts[id] = { pinHash: null, pinSalt: null, characters: [], createdAt: Date.now() });
+  if(acct.characters.length >= MAX_CHARACTERS) return { ok: false, reason: 'roster_full' };
+  const character = {
+    id: 'char_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+    classKey, gender: gender || null, createdAt: Date.now()
+  };
+  acct.characters.push(character);
   persist();
+  return { ok: true, character };
+}
+
+function deleteCharacter(id, characterId){
+  const acct = state.accounts[id];
+  if(!acct) return false;
+  const before = acct.characters.length;
+  acct.characters = acct.characters.filter(c => c.id !== characterId);
+  if(acct.characters.length === before) return false; // nothing matched — not an error, just a no-op
+  persist();
+  return true;
 }
 
 function getFamilyState(){
@@ -210,5 +250,5 @@ function addFamilyCurrency(amount){
 module.exports = {
   touchOrCreatePlayer, loadPlayerStats, savePlayerStats,
   recordDungeonClear, getFamilyState, addFamilyCurrency,
-  verifyOrClaimPin, getAccountClass, saveAccountClass
+  verifyOrClaimPin, getCharacters, getCharacter, createCharacter, deleteCharacter
 };

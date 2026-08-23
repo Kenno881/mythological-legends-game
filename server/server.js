@@ -17,18 +17,35 @@
 //     a "login" message succeeds. See ACCOUNTS/LOGIN below.
 //   Client -> Server
 //     {type:"login", username, pin}       only while the connection is pending (no id yet)
-//     {type:"join", classKey}             one-time per account — ignored if the account
-//                                          already has a permanent classKey (§8a)
+//     {type:"createCharacter", classKey, gender}   add a saved character (max 4 — §8a roster)
+//     {type:"deleteCharacter", characterId}        free up a roster slot
+//     {type:"join", characterId}          play one of this account's saved characters this run
+//                                          — refused if a live entry already exists (alive or
+//                                          dead; a dead one needs reviving or a wipe, not a
+//                                          fresh join, see REVIVE/WIPE below)
+//     {type:"leaveDungeon"}               log this account's character out cleanly back to
+//                                          title, without disturbing other connected players
+//                                          (unless this is the only one connected — see below)
 //     {type:"input", keys:{up,down,left,right}, action:null|"attack"|"special1"|"special2"}
 //   Server -> Client
 //     {type:"loginResult", ok, accountId?, isNewClaim?, reason?}   reply to "login"
-//     {type:"welcome", id, roomId, resuming, classKey, isTest}     once, right after identity
-//                                                                  is established (immediately
-//                                                                  for a remembered device, or
-//                                                                  right after a successful login)
+//     {type:"characterList", characters:[...], error?}   reply to create/deleteCharacter
+//     {type:"welcome", id, roomId, resuming, characters:[...], isTest}   once, right after
+//                                          identity is established (immediately for a
+//                                          remembered device, or right after a successful login)
+//     {type:"leftDungeon"}                reply to "leaveDungeon"
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, safe, safeExit:{x,y,r},
-//                     victory, waitingForFamily}   every tick (20/s)
+//                     victory, waitingForFamily}   every tick (20/s) — each player also
+//                     carries reviveProgress (see REVIVE/WIPE below)
+//
+// REVIVE/WIPE: dying no longer lets a player just rejoin — an alive,
+// currently-connected teammate has to stand within REVIVE_RANGE and hold
+// there for REVIVE_CHANNEL_SECONDS (js/data.js, shared with the client's
+// progress bar) to bring them back at partial HP (tickRevive). If nobody
+// connected is left alive to do that, the whole party wipes: after a
+// short delay everyone's reset to alive/full HP and the dungeon resets to
+// its own safe room (checkForWipe, called from damagePlayer).
 //
 // SAFE ROOM & PARTY GATE: every dungeon's room 0 is a safe room (no
 // monsters — see js/data.js's DUNGEONS) where the party can see who's
@@ -52,7 +69,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES } = require('../js/data.js');
+const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS } = require('../js/data.js');
 const db = require('./db.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
@@ -97,6 +114,12 @@ function pickSpawnPoint(){
 }
 
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; // how long a disconnected character survives before removal
+
+// Revive: an alive, connected teammate standing within REVIVE_RANGE of a
+// fallen player for REVIVE_CHANNEL_SECONDS (js/data.js, shared with the
+// client's progress bar) brings them back at REVIVE_HP_FRACTION of max HP.
+const REVIVE_RANGE = 50;
+const REVIVE_HP_FRACTION = 0.4;
 
 // ---------- ACCOUNTS (MASTER_DESIGN.md §8a) ----------
 // Exactly 5 reserved account ids — the family's fixed 4-person roster plus
@@ -295,7 +318,7 @@ wss.on('connection', (ws, req) => {
 
     ws.send(JSON.stringify({
       type: 'welcome', id, roomId: currentRoomId(), resuming,
-      classKey: db.getAccountClass(id), isTest: ACCOUNTS[id].isTest
+      characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest
     }));
     console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
   }
@@ -326,6 +349,22 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    if(msg.type === 'leaveDungeon'){
+      // Special-cased here rather than in handleMessage() because it needs
+      // to reset this closure's own `id` back to null — the whole point is
+      // this same socket can go through 'login' again afterward without
+      // reconnecting, exactly like a fresh, never-logged-in connection.
+      const wasSolo = clients.size === 1;
+      delete players[id];
+      if(reconnectTimers.has(id)){ clearTimeout(reconnectTimers.get(id)); reconnectTimers.delete(id); }
+      clients.delete(id);
+      console.log(`[leave] ${id} left the dungeon${wasSolo ? ' (was solo — resetting to the safe room)' : ''}`);
+      if(wasSolo) loadRoom(0); // nothing left to disrupt, and no reason to leave the world parked mid-fight with nobody around
+      ws.send(JSON.stringify({ type: 'leftDungeon' }));
+      id = null;
+      return;
+    }
+
     handleMessage(id, msg);
   });
 
@@ -353,22 +392,37 @@ wss.on('connection', (ws, req) => {
 function handleMessage(id, msg){
   if(!msg || typeof msg.type !== 'string') return;
 
+  if(msg.type === 'createCharacter'){
+    const classKey = CLASSES[msg.classKey] ? msg.classKey : null;
+    if(!classKey) return;
+    const gender = (msg.gender === 'male' || msg.gender === 'female') ? msg.gender : null;
+    const result = db.createCharacter(id, classKey, gender);
+    const ws = clients.get(id);
+    if(ws) ws.send(JSON.stringify({ type: 'characterList', characters: db.getCharacters(id), error: result.ok ? null : result.reason }));
+    return;
+  }
+
+  if(msg.type === 'deleteCharacter'){
+    db.deleteCharacter(id, msg.characterId);
+    const ws = clients.get(id);
+    if(ws) ws.send(JSON.stringify({ type: 'characterList', characters: db.getCharacters(id) }));
+    return;
+  }
+
   if(msg.type === 'join'){
-    // Refuse to clobber a *live* character (protects a reconnect from
-    // losing progress if the client redundantly re-sends "join"). A dead
-    // one is fair game — dying and rejoining starts a fresh character
-    // (position/hp/gear reset), same as it always has, but the class
-    // itself is now permanent per account (§8a) rather than re-picked.
-    if(players[id] && !players[id].dead) return;
-    const persistedClass = db.getAccountClass(id);
-    const classKey = (persistedClass && CLASSES[persistedClass]) ? persistedClass
-      : (CLASSES[msg.classKey] ? msg.classKey : 'squire');
-    if(!persistedClass) db.saveAccountClass(id, classKey); // first-ever join for this account — locks it in
+    // Refuse to clobber a live entry, dead or alive — a dead one now needs
+    // reviving (or a full wipe) rather than a fresh join; see REVIVE/WIPE
+    // at the top of this file. Only ever runs against an id with no entry
+    // at all: a brand new session, or right after a revive/wipe reset.
+    if(players[id]) return;
+    const character = db.getCharacter(id, msg.characterId);
+    if(!character) return; // unknown/stale characterId — client's roster is out of sync, ignore
+    const classKey = CLASSES[character.classKey] ? character.classKey : 'squire';
     const c = CLASSES[classKey];
     const spawn = pickSpawnPoint();
     const name = ACCOUNTS[id].name;
     players[id] = {
-      id, classKey, name,
+      id, classKey, name, characterId: character.id, gender: character.gender,
       x: spawn.x, y: spawn.y,
       hp: c.hp, maxHp: c.hp,
       mana: c.hasMana ? c.maxMana : 0, maxMana: c.hasMana ? c.maxMana : 0,
@@ -380,6 +434,7 @@ function handleMessage(id, msg){
       buffTimer: 0, buffMult: 1,
       spawnProtection: SPAWN_GRACE,
       hasteMult: 1, hasteTimer: 0,
+      reviveProgress: 0,
       dead: false,
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
@@ -387,7 +442,7 @@ function handleMessage(id, msg){
       ...db.loadPlayerStats(id)
     };
     db.savePlayerStats(players[id]); // persist the resolved name even if stats themselves are unchanged
-    console.log(`[join] ${id} as ${classKey}`);
+    console.log(`[join] ${id} as ${classKey} (character ${character.id})`);
     return;
   }
 
@@ -542,7 +597,33 @@ function damagePlayer(player, dmg){
     player.totalDeaths++;
     db.savePlayerStats(player);
     console.log(`[death] ${player.id} fell in ${currentDungeon().name}`);
+    checkForWipe();
   }
+}
+
+// Called after every death — if nobody currently connected is left alive
+// to revive anyone, the party can't recover on its own. Resets the
+// dungeon back to its own safe room (not a character/account reset) once
+// the moment has had a beat to land. Harmless if it fires more than once
+// for the same wipe (e.g. two players die in the same tick) — resetting
+// already-alive/full-HP players and reloading room 0 again is a no-op.
+function checkForWipe(){
+  const ids = Object.keys(players);
+  if(ids.length === 0) return;
+  const anyoneAliveAndConnected = ids.some(id => !players[id].dead && clients.has(id));
+  if(anyoneAliveAndConnected) return;
+  console.log(`[wipe] the party has fallen in ${currentDungeon().name} — resetting to the safe room`);
+  setTimeout(()=>{
+    for(const id in players){
+      const p = players[id];
+      p.dead = false;
+      p.hp = p.maxHp;
+      if(p.maxMana) p.mana = p.maxMana;
+      p.reviveProgress = 0;
+      p.spawnProtection = SPAWN_GRACE;
+    }
+    loadRoom(0);
+  }, 2000);
 }
 
 function onBossDefeated(){
@@ -626,6 +707,33 @@ function tickBranch(){
     if(someoneAt(BRANCH_RETURN_EXIT)){
       branchState = null;
       advanceToNextRoom();
+    }
+  }
+}
+
+// A dead player only comes back by having an alive, connected teammate
+// hold near them for REVIVE_CHANNEL_SECONDS — see the REVIVE/WIPE note at
+// the top of this file. Leaving range resets progress immediately rather
+// than decaying, so a reviver has to actually commit to standing still
+// (often next to whatever just killed the fallen player) rather than
+// poke in and out safely.
+function tickRevive(dt){
+  for(const id in players){
+    const p = players[id];
+    if(!p.dead) continue;
+    const reviver = Object.values(players).find(o =>
+      o.id !== p.id && !o.dead && clients.has(o.id) && Math.hypot(o.x - p.x, o.y - p.y) < REVIVE_RANGE);
+    if(!reviver){
+      p.reviveProgress = 0;
+      continue;
+    }
+    p.reviveProgress += dt;
+    if(p.reviveProgress >= REVIVE_CHANNEL_SECONDS){
+      p.dead = false;
+      p.hp = p.maxHp * REVIVE_HP_FRACTION;
+      p.spawnProtection = SPAWN_GRACE;
+      p.reviveProgress = 0;
+      console.log(`[revive] ${p.id} revived by ${reviver.id} in ${currentDungeon().name}`);
     }
   }
 }
@@ -825,6 +933,7 @@ setInterval(()=>{
     tickLoot();
     tickSafeRoom();
     tickBranch();
+    tickRevive(dt);
   }
   broadcastState();
 }, TICK_MS);

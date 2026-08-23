@@ -155,32 +155,43 @@ const DUNGEONS = [
 ];
 
 // ---------- DATA: ENEMY TYPES ----------
+// Stats bumped 2026-08-23 (trash ~+22% HP, bosses ~+15% HP, all ~+12%
+// damage) — a full family of 4 was steamrolling these; this is a first
+// pass toward "hard on the first try, still beatable," reassessed by
+// actually playing it rather than picked from DPS math. Death now has
+// real stakes (revive-by-teammate-or-wipe, server.js), which is most of
+// what makes this land as "tough" rather than just slower.
 const ENEMY_TYPES = {
-  bandit:       {hp:38,  speed:110, dmg:8,  radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15,
+  bandit:       {hp:46,  speed:110, dmg:9,  radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15,
                  sprite:"assets/sprites/bandit.png"},
-  darkKnight:   {hp:70,  speed:95,  dmg:13, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
+  darkKnight:   {hp:85,  speed:95,  dmg:15, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
                  sprite:"assets/sprites/darkknight.png"},
-  blackKnight:  {hp:420, speed:80,  dmg:20, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
+  blackKnight:  {hp:480, speed:80,  dmg:22, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
                  slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
                  sprite:"assets/sprites/blackknightboss.png"},
-  zombie:       {hp:55,  speed:70,  dmg:10, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
+  zombie:       {hp:67,  speed:70,  dmg:11, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
                  sprite:"assets/sprites/zombie.png"},
-  wraith:       {hp:28,  speed:155, dmg:9,  radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
+  wraith:       {hp:34,  speed:155, dmg:10, radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
                  sprite:"assets/sprites/wraith.png"},
-  greenKnight:  {hp:500, speed:92,  dmg:18, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
+  greenKnight:  {hp:575, speed:92,  dmg:20, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
                  slamCd:4.2, slamRadius:110, slamDmg:30, slamTelegraph:1.0,
                  sprite:"assets/sprites/greenknight.png"},
-  direKnight:   {hp:85,  speed:105, dmg:15, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
+  direKnight:   {hp:104, speed:105, dmg:17, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
                  sprite:"assets/sprites/direknight.png"},
-  mordred:      {hp:600, speed:98,  dmg:22, radius:26, color:"#7a1f2b", range:46, cd:1.1, boss:true,
+  mordred:      {hp:690, speed:98,  dmg:25, radius:26, color:"#7a1f2b", range:46, cd:1.1, boss:true,
                  slamCd:3.8, slamRadius:130, slamDmg:36, slamTelegraph:1.0,
                  sprite:"assets/sprites/mordred.png"},
-  mistWraith:   {hp:40,  speed:135, dmg:11, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2,
+  mistWraith:   {hp:49,  speed:135, dmg:12, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2,
                  sprite:"assets/sprites/mistwraith.png"},
-  questingBeast:{hp:750, speed:88,  dmg:25, radius:30, color:"#3a1f5b", range:50, cd:1.2, boss:true,
+  questingBeast:{hp:860, speed:88,  dmg:28, radius:30, color:"#3a1f5b", range:50, cd:1.2, boss:true,
                  slamCd:3.5, slamRadius:150, slamDmg:38, slamTelegraph:0.9,
                  sprite:"assets/sprites/questingbeast.png"}
 };
+
+// Shared with server.js's revive channel timer, so the client's revive
+// progress bar (js/render.js) always matches how long the server actually
+// requires — one source of truth instead of two magic numbers drifting.
+const REVIVE_CHANNEL_SECONDS = 4;
 
 // Shared with the Node server (server/server.js) so class/enemy/dungeon stats
 // live in exactly one place. No-op in the browser, where `module` is
@@ -188,5 +199,5 @@ const ENEMY_TYPES = {
 // lives only in server.js, since this file ships to the browser as plain JS
 // and anyone can read it from page source.
 if(typeof module !== 'undefined' && module.exports){
-  module.exports = { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES };
+  module.exports = { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS };
 }

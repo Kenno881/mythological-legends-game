@@ -54,7 +54,29 @@ const gearSprites = GEAR_TIERS.map(t => {
   img.src = t.sprite;
   return img;
 });
-function spriteFor(classKey){ return readySprite(characterSprites, classKey); }
+// Gendered variants (js/data.js's optional spriteMale/spriteFemale) — none
+// exist yet, so these caches just stay empty until that art lands; nothing
+// else needs to change when it does.
+function loadGenderedSprites(genderKey){
+  const cache = {};
+  Object.entries(CLASSES).forEach(([key, entry])=>{
+    if(!entry[genderKey]) return;
+    const img = new Image();
+    img.src = entry[genderKey];
+    cache[key] = img;
+  });
+  return cache;
+}
+const characterSpritesMale = loadGenderedSprites('spriteMale');
+const characterSpritesFemale = loadGenderedSprites('spriteFemale');
+
+function spriteFor(classKey, gender){
+  if(gender === 'male' || gender === 'female'){
+    const genderedSprite = readySprite(gender === 'male' ? characterSpritesMale : characterSpritesFemale, classKey);
+    if(genderedSprite) return genderedSprite;
+  }
+  return readySprite(characterSprites, classKey); // fallback — always exists today
+}
 function monsterSpriteFor(type){ return readySprite(monsterSprites, type); }
 function gearSpriteFor(tier){
   const img = gearSprites[tier];
@@ -315,8 +337,7 @@ function draw(s){
 
   // players
   s.players.forEach(p=>{
-    if(p.dead) return;
-    const sprite = spriteFor(p.classKey);
+    const sprite = spriteFor(p.classKey, p.gender);
 
     // Status rings (gear tier, block, buff, spawn protection) are meant to
     // visually hug the whole character. That's just p.radius when drawing
@@ -326,6 +347,11 @@ function draw(s){
     // untouched, this is purely a rendering choice.
     let ringCenterY = p.y, ringRadius = p.radius;
 
+    // A fallen player stays visible (dimmed) rather than vanishing — a
+    // teammate needs to see where to go to revive them (server.js's
+    // tickRevive, REVIVE_RANGE).
+    ctx.save();
+    if(p.dead) ctx.globalAlpha = 0.35;
     if(sprite){
       const drawHeight = p.radius * 6; // bumped from 4.5 2026-08-23, same reasoning as the monster sprite above
       const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
@@ -339,6 +365,20 @@ function draw(s){
       ctx.fillStyle = p.color;
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore(); // alpha back to 1 — the name/revive-bar below should always read clearly
+
+    if(p.dead){
+      ctx.fillStyle = "#ff9a9a"; ctx.font = "11px Georgia"; ctx.textAlign = "center";
+      ctx.fillText(p.name + " — fallen", p.x, ringCenterY - ringRadius - 8);
+      if(p.reviveProgress > 0){
+        const barW = 50;
+        const pct = Math.min(1, p.reviveProgress / REVIVE_CHANNEL_SECONDS);
+        ctx.fillStyle = "#000a"; ctx.fillRect(p.x - barW / 2, ringCenterY - ringRadius - 20, barW, 6);
+        ctx.fillStyle = "#5ac26a"; ctx.fillRect(p.x - barW / 2, ringCenterY - ringRadius - 20, barW * pct, 6);
+      }
+      ctx.textAlign = "left";
+      return; // no status rings/gear badge while fallen — nothing to show
     }
 
     ctx.strokeStyle = GEAR_TIERS[p.gearTier].color;
