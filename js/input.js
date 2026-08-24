@@ -34,7 +34,6 @@ window.addEventListener('keydown', e=>{
   if(k === 's' || k === 'arrowdown') keyboardKeys.down = true;
   if(k === 'a' || k === 'arrowleft') keyboardKeys.left = true;
   if(k === 'd' || k === 'arrowright') keyboardKeys.right = true;
-  if(k === ' ') queuedAction = 'attack';
   if(k === 'e') queuedAction = 'special1';
   if(k === 'q') queuedAction = 'special2';
 });
@@ -84,10 +83,11 @@ stickZone.addEventListener('touchmove', e=>{ if(stickActive) stickHandler(e); })
 stickZone.addEventListener('touchend', stickReset);
 
 // ---------- ACTION BUTTONS ----------
-document.getElementById('btnAttack').addEventListener('click', ()=> queuedAction = 'attack');
+// Basic attack is automatic now (server.js's tickAutoAttack) — no button
+// for it. These two remain fully manual.
 document.getElementById('btnSpecial1').addEventListener('click', ()=> queuedAction = 'special1');
 document.getElementById('btnSpecial2').addEventListener('click', ()=> queuedAction = 'special2');
-['btnAttack', 'btnSpecial1', 'btnSpecial2'].forEach(id=>{
+['btnSpecial1', 'btnSpecial2'].forEach(id=>{
   document.getElementById(id).addEventListener('touchstart', e=>e.preventDefault());
 });
 
@@ -96,12 +96,13 @@ document.getElementById('btnSpecial2').addEventListener('click', ()=> queuedActi
 // way to read one is to poll navigator.getGamepads() yourself, every frame,
 // for as long as it might be in use. Standard-layout assumption (the vast
 // majority of USB/Bluetooth pads report as "standard"): left stick or
-// d-pad for movement, A/B/X for attack/special1/special2 — A is the
-// bottom face button, the natural "go" button for a kid picking this up
-// cold. Button state needs manual edge-detection (was it up last poll?) to
-// get the same one-shot-per-press behavior keydown/click give for free.
+// d-pad for movement, A/B for special1/special2 — basic attack is
+// automatic now (server.js's tickAutoAttack), so there's no attack button
+// to bind at all. Button state needs manual edge-detection (was it up last
+// poll?) to get the same one-shot-per-press behavior keydown/click give
+// for free.
 const GAMEPAD_DEADZONE = 0.3;
-const BTN_ATTACK = 0, BTN_SPECIAL1 = 1, BTN_SPECIAL2 = 2; // A, B, X on a standard mapping
+const BTN_SPECIAL1 = 0, BTN_SPECIAL2 = 1; // A, B on a standard mapping
 let prevButtonsPressed = {};
 let lastLoggedGamepadId = null; // avoids re-logging "connected" every single poll
 
@@ -159,7 +160,6 @@ function pollGamepad(){
     gamepadKeys.up = ay < -GAMEPAD_DEADZONE || dpadUp;
     gamepadKeys.down = ay > GAMEPAD_DEADZONE || dpadDown;
 
-    checkButtonEdge(gp, BTN_ATTACK, 'attack');
     checkButtonEdge(gp, BTN_SPECIAL1, 'special1');
     checkButtonEdge(gp, BTN_SPECIAL2, 'special2');
   } else if(lastLoggedGamepadId !== null){

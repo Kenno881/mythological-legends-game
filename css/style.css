@@ -85,8 +85,10 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .bar.mana{background:linear-gradient(90deg,#1f4a7a,#4090c9);}
 .bar.special{background:linear-gradient(90deg,#8a6a1a,var(--gold-bright));}
 #dungeonLabel{font-variant:small-caps;letter-spacing:1px;color:var(--gold-bright);}
+#waveLabel{font-size:11px;color:var(--parchment-dark);margin-top:2px;}
 #gearLabel{display:flex;align-items:center;justify-content:flex-end;gap:5px;}
 #gearIcon{width:16px;height:16px;object-fit:contain;}
+#currencyLabel{font-size:11px;color:var(--gold-bright);margin-top:2px;}
 
 #banner{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);
   font-size:clamp(20px,5vw,34px);color:var(--gold-bright);text-shadow:2px 2px 0 #000;
@@ -129,7 +131,6 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .abtn{width:76px;height:76px;border-radius:50%;border:3px solid var(--ink);font-family:inherit;
   font-size:11px;font-variant:small-caps;line-height:1.1;color:var(--ink);cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;}
-.abtn.attack{background:radial-gradient(circle,#e8c14a,#a8811a);}
 .abtn.special1{background:radial-gradient(circle,#e0e0e0,#8a1f2b);color:var(--parchment);}
 .abtn.special2{background:radial-gradient(circle,#a8d8e8,#1a5a8a);color:var(--parchment);}
 .abtn .cd{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.6);

@@ -74,29 +74,58 @@ const DUNGEONS = [
     floorColor: "#2f3b23", wallColor: "#1c2417",
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
-    // The Ambush Hollow — optional detour off room 1 (branch: true below).
-    // Tougher than that room's own bandit trio (two dark knights, not
-    // one, plus a bandit) in exchange for a guaranteed drop instead of
-    // the usual 35% chance — see server.js's dropLoot().
-    sideChamber: {
-      name: "The Ambush Hollow",
-      warningText: "A harder road — tougher foes wait, but the loot is worth it.",
-      enemies: [
-        {type:"darkKnight", x:450, y:220}, {type:"darkKnight", x:620, y:420},
-        {type:"bandit", x:350, y:480}
-      ]
-    },
     rooms: [
       { safe: true, enemies: [] },
-      { branch: true, enemies: [
+      // Forest Path — forks into the Ambush Hollow (branch: true below).
+      // Tougher than this room's own bandit trio (two dark knights, not
+      // one, plus a bandit) in exchange for a guaranteed drop instead of
+      // the usual 35% chance — see server.js's dropLoot().
+      { branch: true,
+        sideChamber: {
+          name: "The Ambush Hollow",
+          warningText: "A harder road — tougher foes wait, but the loot is worth it.",
+          enemies: [
+            {type:"darkKnight", x:450, y:220}, {type:"darkKnight", x:620, y:420},
+            {type:"bandit", x:350, y:480}
+          ]
+        },
+        enemies: [
           {type:"bandit", x:420, y:200}, {type:"bandit", x:600, y:400},
           {type:"bandit", x:300, y:500}
         ]},
-      { enemies: [
-          {type:"darkKnight", x:500, y:250}, {type:"bandit", x:700, y:450},
-          {type:"bandit", x:250, y:350}, {type:"darkKnight", x:650, y:180}
+      // Old Watchtower — a second fork. Main path is a modest fixed fight;
+      // the side chamber (Poacher's Den) is guarded by a real mini-boss
+      // (the Bandit Captain, §6 of MASTER_DESIGN.md's encounter tiers —
+      // first thing to actually occupy that tier) for guaranteed loot.
+      { branch: true,
+        sideChamber: {
+          name: "The Poacher's Den",
+          warningText: "Their captain keeps watch here — worth the fight.",
+          enemies: [
+            {type:"banditCaptain", x:500, y:280},
+            {type:"bandit", x:350, y:420}, {type:"bandit", x:650, y:420}
+          ]
+        },
+        enemies: [
+          {type:"darkKnight", x:500, y:250}, {type:"bandit", x:680, y:420},
+          {type:"bandit", x:320, y:420}
         ]},
-      { boss: true, enemies: [ {type:"blackKnight", x:500, y:280} ] }
+      // The Sunken Trail — a continuous-spawn wave encounter (§9's
+      // escalating-spawn direction, first slice of it, Sherwood-only for
+      // now). Kill quota drives escalation: spawns get faster and enemies
+      // get tougher as killsSoFar climbs — see server.js's tickWaveSpawns.
+      { wave: true, killTarget: 14, maxAlive: 5,
+        spawnPoints: [
+          {x:450, y:200}, {x:700, y:250}, {x:300, y:500},
+          {x:650, y:550}, {x:500, y:400}
+        ],
+        pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ]
+      },
+      // Boss room — usually the Black Knight, rarely (see rareVariant)
+      // Sir Gorlagon instead, per §5/§6/§9's "sometimes it's someone
+      // special" rare-boss idea.
+      { boss: true, enemies: [ {type:"blackKnight", x:500, y:280} ],
+        rareVariant: { type: "blackKnightRare", chance: 0.12 } }
     ]
   },
   { name: "The Sunken Chapel",
@@ -166,8 +195,39 @@ const ENEMY_TYPES = {
                  sprite:"assets/sprites/bandit.png"},
   darkKnight:   {hp:85,  speed:95,  dmg:15, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
                  sprite:"assets/sprites/darkknight.png"},
+  // Mini-boss (§6's encounter tiers) guarding the Poacher's Den side
+  // chamber — tankier than darkKnight, well short of a dungeon boss, with
+  // one real telegraphed mechanic (a slam cleave) reusing the same
+  // slamCd/slamRadius/slamDmg/slamTelegraph fields bosses use — see
+  // server.js's generalized "has slam fields" gate in tickMonsters.
+  banditCaptain:{hp:230, speed:105, dmg:17, radius:20, color:"#5a3a20", range:38, cd:1.0, xpGear:0.4,
+                 slamCd:5.5, slamRadius:90, slamDmg:19, slamTelegraph:1.0,
+                 sprite:"assets/sprites/bandit.png"},
+  // Charge fields (chargeCd/chargeDmg/chargeTelegraph/chargeSpeed) are a
+  // second, distinct boss mechanic alongside the shared slam AoE — a
+  // telegraphed dash toward the current target's position (locked in when
+  // the telegraph starts, so it's actually dodgeable), damaging anyone it
+  // passes through. Data-driven and reusable by any boss later, but only
+  // wired onto blackKnight/blackKnightRare for now (chips at the "every
+  // boss shares one mechanic" gap noted in MASTER_DESIGN.md §3 for this
+  // one boss). rewardCurrency feeds the family-currency-on-clear payoff in
+  // server.js's onBossDefeated.
   blackKnight:  {hp:480, speed:80,  dmg:22, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
                  slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
+                 chargeCd:6.5, chargeDmg:24, chargeTelegraph:0.6, chargeSpeed:550,
+                 rewardCurrency:30,
+                 sprite:"assets/sprites/blackknightboss.png"},
+  // Rare named variant (§5/§6's "sometimes it's someone special") — same
+  // kit as blackKnight, ~15% tougher, guaranteed better loot (see
+  // server.js's dropLoot) and a bigger currency payoff. Rolled once when
+  // Sherwood's boss room loads (js/data.js's rareVariant field on that
+  // room) rather than a mid-run ambush.
+  blackKnightRare:{hp:552, speed:80, dmg:25, radius:26, color:"#7a1f2b", range:46, cd:1.3, boss:true,
+                 slamCd:4.5, slamRadius:120, slamDmg:39, slamTelegraph:1.1,
+                 chargeCd:6.5, chargeDmg:28, chargeTelegraph:0.6, chargeSpeed:550,
+                 rewardCurrency:60, displayName:"Sir Gorlagon, the Crimson Knight",
+                 introText:"A crimson-armored rider blocks the path — Sir Gorlagon himself!",
+                 defeatText:"Sir Gorlagon falls! The way to the marshes opens...",
                  sprite:"assets/sprites/blackknightboss.png"},
   zombie:       {hp:67,  speed:70,  dmg:11, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
                  sprite:"assets/sprites/zombie.png"},

@@ -26,7 +26,9 @@
 //     {type:"leaveDungeon"}               log this account's character out cleanly back to
 //                                          title, without disturbing other connected players
 //                                          (unless this is the only one connected — see below)
-//     {type:"input", keys:{up,down,left,right}, action:null|"attack"|"special1"|"special2"}
+//     {type:"input", keys:{up,down,left,right}, action:null|"special1"|"special2"}
+//                                          basic attack is automatic now (see AUTO-ATTACK below) —
+//                                          there is no "attack" action anymore
 //   Server -> Client
 //     {type:"loginResult", ok, accountId?, isNewClaim?, reason?}   reply to "login"
 //     {type:"characterList", characters:[...], error?}   reply to create/deleteCharacter
@@ -35,9 +37,16 @@
 //                                          remembered device, or right after a successful login)
 //     {type:"leftDungeon"}                reply to "leaveDungeon"
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
-//                     roomId, dungeonName, boss, safe, safeExit:{x,y,r},
-//                     victory, waitingForFamily}   every tick (20/s) — each player also
-//                     carries reviveProgress (see REVIVE/WIPE below)
+//                     roomId, dungeonName, boss, safe, safeExit:{x,y,r}, wave:{killsSoFar,killTarget}|null,
+//                     family:{currency,unlocks}, rewardBanner, victory, waitingForFamily}
+//                     every tick (20/s) — each player also carries reviveProgress (see REVIVE/WIPE
+//                     below) and targetId (see AUTO-ATTACK below)
+//
+// AUTO-ATTACK & TARGET-LOCK: basic attack fires automatically — no client
+// action needed. Each player locks onto the nearest monster (tickAutoAttack)
+// and keeps attacking it, on cooldown, as long as it's alive and in range;
+// losing the target (it died) picks a fresh nearest one. Specials
+// (special1/special2) stay fully manual, unchanged.
 //
 // REVIVE/WIPE: dying no longer lets a player just rejoin — an alive,
 // currently-connected teammate has to stand within REVIVE_RANGE and hold
@@ -148,6 +157,7 @@ let roomIndex = 0;
 let advancing = false;                  // room/dungeon transition in progress
 let waitingForFamily = false;           // standing at the safe room's exit but not all 4 family accounts are online yet
 let victory = false;
+let rewardBanner = null;                // set for the ~advancing pause after a boss dies — see onBossDefeated()
 let dungeonStartedAt = Date.now();      // reset in loadRoom() on leaving the safe room — feeds best-time tracking (server/db.js), not padded by however long the party took to gather
 
 let monsterSeq = 0, lootSeq = 0, projSeq = 0;
@@ -156,25 +166,84 @@ function currentDungeon(){ return DUNGEONS[dungeonIndex]; }
 function currentRoom(){ return currentDungeon().rooms[roomIndex]; }
 function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 
+// Shared by every place a monster gets spawned (a normal room, the side
+// chamber, a wave room's initial/ongoing spawns) so the instance shape —
+// which fields get reset vs. inherited from ENEMY_TYPES — lives in exactly
+// one place. hpScale lets wave spawns get modestly tougher as a fight goes
+// on (server.js's tickWaveSpawns) without a separate code path.
+function spawnMonster(type, x, y, hpScale){
+  const t = ENEMY_TYPES[type];
+  const id = 'm' + (++monsterSeq);
+  const hp = Math.round(t.hp * (hpScale || 1));
+  monsters[id] = Object.assign({}, t, {
+    id, type, x, y, hp, maxHp: hp, cd: 0,
+    slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
+    stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0,
+    chargeCd: t.chargeCd || 0, chargeState: null, chargeTimer: 0
+  });
+  return monsters[id];
+}
+
+// null while not in a wave room; {killsSoFar, killTarget, spawnTimer} while
+// in one — see js/data.js's `wave: true` rooms and tickWaveSpawns() below.
+let waveState = null;
+
 function loadRoom(idx){
   roomIndex = idx;
   branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
+  waveState = null;
   if(idx === 1) dungeonStartedAt = Date.now(); // idx 0 is always the safe room — the real run starts on leaving it
   const dungeon = currentDungeon();
   const room = dungeon.rooms[idx];
   for(const id in monsters) delete monsters[id];
   loot = [];
-  room.enemies.forEach(e=>{
-    const t = ENEMY_TYPES[e.type];
-    const id = 'm' + (++monsterSeq);
-    monsters[id] = Object.assign({}, t, {
-      id, type: e.type, x: e.x, y: e.y, hp: t.hp, maxHp: t.hp, cd: 0,
-      slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
-      stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0
-    });
-  });
-  const label = room.safe ? 'safe room' : room.boss ? 'BOSS' : `chamber ${idx}`;
-  console.log(`[room] ${dungeon.name} — ${label} (${room.enemies.length} monsters)`);
+
+  if(room.wave){
+    waveState = { killsSoFar: 0, killTarget: room.killTarget, spawnTimer: 2.5 };
+    for(let i = 0; i < 3; i++) spawnWaveMonster(room);
+  } else {
+    // A boss room may name a rare variant (js/data.js's rareVariant field)
+    // rolled once here — "sometimes it's someone special" (§5/§6/§9). Every
+    // boss room defined today has exactly one enemy entry, so overriding
+    // every entry's type is equivalent to overriding "the boss."
+    const rareRoll = room.boss && room.rareVariant && Math.random() < room.rareVariant.chance;
+    room.enemies.forEach(e=> spawnMonster(rareRoll ? room.rareVariant.type : e.type, e.x, e.y));
+  }
+
+  const label = room.safe ? 'safe room' : room.boss ? 'BOSS' : room.wave ? 'wave chamber' : `chamber ${idx}`;
+  console.log(`[room] ${dungeon.name} — ${label} (${Object.keys(monsters).length} monsters)`);
+}
+
+// Picks a weighted-random type from a wave room's `pool` and spawns it at a
+// random spawnPoint — used both for the initial batch and by
+// tickWaveSpawns()'s ongoing trickle. hpScale grows with killsSoFar so
+// later spawns are modestly tougher, part of the kill-count-driven
+// escalation (§9, decided in MASTER_DESIGN.md's Open Decisions Log).
+function spawnWaveMonster(room){
+  const totalWeight = room.pool.reduce((sum, e)=> sum + e.w, 0);
+  let roll = Math.random() * totalWeight;
+  let type = room.pool[0].type;
+  for(const e of room.pool){
+    if(roll < e.w){ type = e.type; break; }
+    roll -= e.w;
+  }
+  const p = room.spawnPoints[Math.floor(Math.random() * room.spawnPoints.length)];
+  const hpScale = 1 + Math.min(0.3, (waveState ? waveState.killsSoFar : 0) * 0.02);
+  spawnMonster(type, p.x, p.y, hpScale);
+}
+
+// Keeps a wave room's spawns trickling in while the kill quota hasn't been
+// hit yet — spawn interval shrinks as killsSoFar climbs, which is the
+// actual "escalation" (kill-count driven, not wall-clock — see §9).
+function tickWaveSpawns(dt){
+  if(!waveState) return;
+  if(waveState.killsSoFar >= waveState.killTarget) return;
+  waveState.spawnTimer -= dt;
+  if(waveState.spawnTimer > 0) return;
+  const room = currentRoom();
+  const aliveCount = Object.values(monsters).filter(m=>m.alive).length;
+  if(aliveCount < room.maxAlive) spawnWaveMonster(room);
+  waveState.spawnTimer = Math.max(1.2, 3.2 - waveState.killsSoFar * 0.12);
 }
 
 // The safe room's exit — a fixed spot near the far wall, opposite the
@@ -428,6 +497,7 @@ function handleMessage(id, msg){
       mana: c.hasMana ? c.maxMana : 0, maxMana: c.hasMana ? c.maxMana : 0,
       speed: c.speed, radius: c.radius, color: c.color,
       gearTier: 0,
+      targetId: null, // auto-attack's locked target — see tickAutoAttack()
       keys: { up: false, down: false, left: false, right: false },
       cds: { attack: 0, special1: 0, special2: 0 },
       blockActive: false, blockTimer: 0,
@@ -450,19 +520,19 @@ function handleMessage(id, msg){
   if(!player || player.dead) return;
   if(msg.type !== 'input') return;
 
-  // {type:"input", keys:{up,down,left,right}, action:"attack"|"special1"|"special2"|null}
+  // {type:"input", keys:{up,down,left,right}, action:"special1"|"special2"|null}
   // `keys` sets the player's held-direction state, applied to movement every tick.
   // `action` is level-triggered (safe to resend every message while held) — each
   // handler is already cooldown-gated below, so re-sending the same action is a no-op
-  // until its cooldown clears.
+  // until its cooldown clears. Basic attack is no longer a client action — see
+  // tickAutoAttack() and the AUTO-ATTACK note at the top of this file.
   const k = msg.keys || {};
   player.keys.up = !!k.up;
   player.keys.down = !!k.down;
   player.keys.left = !!k.left;
   player.keys.right = !!k.right;
 
-  if(msg.action === 'attack') doAttack(player);
-  else if(msg.action === 'special1') doSpecial(player, 1);
+  if(msg.action === 'special1') doSpecial(player, 1);
   else if(msg.action === 'special2') doSpecial(player, 2);
 }
 
@@ -484,16 +554,40 @@ function forEachAliveMonster(fn){
   }
 }
 
-function doAttack(player){
-  if(player.cds.attack > 0) return;
+// Auto-attack + target-lock (§9's "core combat input, shared across all
+// classes"). Each alive player keeps a locked target (player.targetId) —
+// stays locked while it's alive, rather than re-picking "nearest" on every
+// single swing, and only reacquires once that target's gone. Specials stay
+// fully manual (doSpecial, driven by client input), unchanged.
+function tickAutoAttack(){
+  for(const id in players){
+    const player = players[id];
+    if(player.dead || player.cds.attack > 0) continue;
+
+    let target = player.targetId ? monsters[player.targetId] : null;
+    if(!target || !target.alive){
+      target = nearestMonster(player);
+      player.targetId = target ? target.id : null;
+    }
+    if(!target) continue;
+
+    const c = CLASSES[player.classKey];
+    const a = c.attack;
+    const inRange = Math.hypot(target.x - player.x, target.y - player.y) < a.range + (a.projectile ? 0 : target.radius);
+    if(!inRange) continue;
+    if(a.cost && player.mana < a.cost) continue;
+
+    doAttack(player, target);
+  }
+}
+
+function doAttack(player, target){
   const c = CLASSES[player.classKey];
   const a = c.attack;
-  if(a.cost && player.mana < a.cost) return;
   player.cds.attack = a.cd;
   if(a.cost) player.mana -= a.cost;
 
   if(a.projectile){
-    const target = nearestMonster(player);
     let ang = 0;
     if(target) ang = Math.atan2(target.y - player.y, target.x - player.x);
     projectiles.push({
@@ -503,6 +597,9 @@ function doAttack(player){
       dmg: a.dmg * player.buffMult, life: a.range / 420, r: 6
     });
   } else {
+    // Melee still cleaves everything in range rather than only the locked
+    // target — that's how this already felt when manually mashing the old
+    // attack button, and target-lock mainly matters for ranged aim/UI here.
     const buffed = a.dmg * player.buffMult;
     forEachAliveMonster(mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
@@ -575,7 +672,8 @@ function hitMonster(mon, dmg, killerId){
     dropLoot(mon);
     const killer = players[killerId];
     if(killer){ killer.totalKills++; db.savePlayerStats(killer); }
-    if(mon.boss) onBossDefeated();
+    if(waveState) waveState.killsSoFar++; // drives tickWaveSpawns()'s escalation
+    if(mon.boss) onBossDefeated(mon);
   }
 }
 
@@ -584,6 +682,11 @@ function dropLoot(mon){
   // harder detour (see js/data.js's sideChamber.warningText).
   if(mon.boss || branchState === 'in_side_chamber' || Math.random() < 0.35){
     loot.push({ id: 'l' + (++lootSeq), x: mon.x, y: mon.y, taken: false });
+  }
+  // Rare boss variant guarantees a second drop on top of the boss-kill
+  // guarantee above — see js/data.js's blackKnightRare/rareVariant.
+  if(mon.type === 'blackKnightRare'){
+    loot.push({ id: 'l' + (++lootSeq), x: mon.x + 20, y: mon.y + 20, taken: false });
   }
 }
 
@@ -626,14 +729,27 @@ function checkForWipe(){
   }, 2000);
 }
 
-function onBossDefeated(){
+function onBossDefeated(mon){
   const d = currentDungeon();
   const elapsedSeconds = (Date.now() - dungeonStartedAt) / 1000;
   db.recordDungeonClear(d.name, elapsedSeconds); // only overwrites if this beats the existing record
-  console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s`);
+
+  // Currency-on-clear (first thing that actually calls addFamilyCurrency —
+  // see MASTER_DESIGN.md §11/§12 Phase 5, which has no spend destination
+  // yet, this just starts the number moving). Amount and defeat flavor
+  // text both come from the monster type so a rare variant (js/data.js's
+  // blackKnightRare) pays out more without any dungeon-specific code here.
+  const t = ENEMY_TYPES[mon.type];
+  const reward = t.rewardCurrency || 30;
+  db.addFamilyCurrency(reward);
+  const defeatText = t.defeatText || d.bossDefeatText;
+  rewardBanner = `${defeatText} (+${reward} to the family's coffers)`;
+  console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s — +${reward} currency`);
+
   advancing = true;
   setTimeout(()=>{
     advancing = false;
+    rewardBanner = null;
     if(dungeonIndex + 1 >= DUNGEONS.length){
       victory = true;
       console.log('[victory] Camelot is saved');
@@ -646,7 +762,7 @@ function onBossDefeated(){
       if(p.maxMana) p.mana = p.maxMana;
     }
     loadRoom(0); // the new dungeon's safe room — the party gate (see tickSafeRoom) lives at its exit, not here
-  }, 1800);
+  }, 3500); // long enough to actually read rewardBanner (was 1800ms — bossDefeatText used to flash past unread)
 }
 
 // The safe room has no monsters to clear, so it needs its own advance
@@ -676,16 +792,8 @@ function tickSafeRoom(){
 function loadSideChamber(){
   for(const id in monsters) delete monsters[id];
   loot = [];
-  const sc = currentDungeon().sideChamber;
-  sc.enemies.forEach(e=>{
-    const t = ENEMY_TYPES[e.type];
-    const id = 'm' + (++monsterSeq);
-    monsters[id] = Object.assign({}, t, {
-      id, type: e.type, x: e.x, y: e.y, hp: t.hp, maxHp: t.hp, cd: 0,
-      slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
-      stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0
-    });
-  });
+  const sc = currentRoom().sideChamber;
+  sc.enemies.forEach(e=> spawnMonster(e.type, e.x, e.y));
   console.log(`[room] ${currentDungeon().name} — side chamber: ${sc.name} (${sc.enemies.length} monsters)`);
 }
 
@@ -766,13 +874,18 @@ function tickMonsters(dt){
 
     const target = pickTarget(mon);
 
-    if(mon.boss){
+    // Slam AoE — gated on "has slam fields" rather than "is a boss", so the
+    // Bandit Captain mini-boss (js/data.js) gets the same telegraphed-AoE
+    // behavior without being flagged boss:true (which also affects
+    // Mesmerize immunity and onBossDefeated()/dungeon-advance below —
+    // neither should fire for a mini-boss kill).
+    if(mon.slamRadius){
       mon.slamCd -= dt;
       if(mon.slamState === 'telegraph'){
         mon.slamTimer -= dt;
         if(mon.slamTimer <= 0){
           mon.slamState = null;
-          // Boss slam is an AoE that hits every nearby player, not just one.
+          // Slam is an AoE that hits every nearby player, not just one.
           for(const pid in players){
             const p = players[pid];
             if(p.dead) continue;
@@ -790,10 +903,48 @@ function tickMonsters(dt){
       }
     }
 
+    // Charge — a second, distinct boss mechanic (js/data.js's blackKnight
+    // charge* fields; §3's "every boss shares one mechanic" gap, chipped
+    // at for this one boss). Direction locks in when the telegraph starts,
+    // not when the dash commits, so it's actually dodgeable rather than
+    // tracking the target live.
+    if(mon.chargeSpeed){
+      mon.chargeCd -= dt;
+      if(mon.chargeState === 'telegraph'){
+        mon.chargeTimer -= dt;
+        if(mon.chargeTimer <= 0){
+          mon.chargeState = 'dashing'; mon.chargeTimer = 0.35; mon.chargeHit = {};
+        }
+      } else if(mon.chargeState === 'dashing'){
+        mon.x += mon.chargeDirX * mon.chargeSpeed * dt;
+        mon.y += mon.chargeDirY * mon.chargeSpeed * dt;
+        mon.x = Math.max(mon.radius, Math.min(W - mon.radius, mon.x));
+        mon.y = Math.max(mon.radius + 60, Math.min(H - mon.radius, mon.y));
+        for(const pid in players){
+          const p = players[pid];
+          if(p.dead || mon.chargeHit[pid]) continue;
+          if(Math.hypot(p.x - mon.x, p.y - mon.y) < mon.radius + p.radius + 10){
+            mon.chargeHit[pid] = true;
+            damagePlayer(p, mon.chargeDmg);
+          }
+        }
+        mon.chargeTimer -= dt;
+        if(mon.chargeTimer <= 0){
+          mon.chargeState = null;
+          mon.chargeCd = ENEMY_TYPES[mon.type].chargeCd;
+        }
+      } else if(mon.chargeCd <= 0){
+        const tgt = pickTarget(mon);
+        const ang = tgt ? Math.atan2(tgt.y - mon.y, tgt.x - mon.x) : 0;
+        mon.chargeDirX = Math.cos(ang); mon.chargeDirY = Math.sin(ang);
+        mon.chargeState = 'telegraph'; mon.chargeTimer = mon.chargeTelegraph;
+      }
+    }
+
     if(!target){ continue; }
 
     const d = Math.hypot(target.x - mon.x, target.y - mon.y);
-    if(mon.slamState !== 'telegraph'){
+    if(mon.slamState !== 'telegraph' && !mon.chargeState){
       if(d > mon.range * 0.7){
         mon.x += (target.x - mon.x) / d * mon.speed * dt;
         mon.y += (target.y - mon.y) / d * mon.speed * dt;
@@ -807,7 +958,12 @@ function tickMonsters(dt){
     }
   }
 
-  if(allDead && Object.keys(monsters).length > 0 && !advancing){
+  // A wave room (js/data.js's `wave: true`) isn't "cleared" just because
+  // the board is momentarily empty — tickWaveSpawns() keeps refilling it
+  // until the kill quota is hit. Every other room keeps the original
+  // all-dead-means-cleared behavior.
+  const waveStillGoing = waveState && waveState.killsSoFar < waveState.killTarget;
+  if(allDead && Object.keys(monsters).length > 0 && !advancing && !waveStillGoing){
     if(branchState === 'in_side_chamber'){
       branchState = 'side_cleared_awaiting_return'; // wait for a player to walk to the return gate — see tickBranch()
     } else if(branchState === null && !currentRoom().boss){
@@ -906,6 +1062,9 @@ function broadcastState(){
       sideExit: BRANCH_SIDE_EXIT,
       returnExit: BRANCH_RETURN_EXIT
     } : null,
+    wave: waveState ? { killsSoFar: waveState.killsSoFar, killTarget: waveState.killTarget } : null,
+    family: db.getFamilyState(),
+    rewardBanner,
     victory,
     waitingForFamily,
     players: Object.values(players),
@@ -928,7 +1087,9 @@ setInterval(()=>{
 
   if(!victory){
     tickPlayers(dt);
+    tickAutoAttack();
     tickMonsters(dt);
+    tickWaveSpawns(dt);
     tickProjectiles(dt);
     tickLoot();
     tickSafeRoom();

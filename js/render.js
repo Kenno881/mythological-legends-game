@@ -13,6 +13,17 @@ function dungeonByName(name){
   return DUNGEONS.find(d => d.name === name) || null;
 }
 
+// Server only sends `roomId` ("dungeonIndex:roomIndex") — this looks up the
+// actual room data object (js/data.js) it refers to, so room-level fields
+// like `sideChamber` (moved off the dungeon and onto individual branch
+// rooms so a dungeon can have more than one branch) can be read here too.
+function currentRoomData(s){
+  const dungeon = dungeonByName(s.dungeonName);
+  if(!dungeon || !s.roomId) return null;
+  const idx = Number(s.roomId.split(':')[1]);
+  return dungeon.rooms[idx] || null;
+}
+
 // ---------- FLOOR TEXTURE ----------
 // A single tileable stone texture reused for every dungeon (and the safe
 // room), color-washed per-room with that room's floorColor so each
@@ -85,12 +96,12 @@ function gearSpriteFor(tier){
 
 // ---------- BANNER / LOOT TOAST ----------
 let bannerTimeout = null;
-function showBanner(text){
+function showBanner(text, duration){
   const b = document.getElementById('banner');
   b.textContent = text;
   b.classList.add('show');
   clearTimeout(bannerTimeout);
-  bannerTimeout = setTimeout(()=> b.classList.remove('show'), 2200);
+  bannerTimeout = setTimeout(()=> b.classList.remove('show'), duration || 2200);
 }
 function showLoot(text){
   const t = document.getElementById('loot-toast');
@@ -125,6 +136,16 @@ function updateHud(s){
     if(gearTierData.sprite) gearIconEl.src = gearTierData.sprite;
   }
   document.getElementById('classLabel').textContent = CLASSES[me.classKey].name;
+
+  // Wave/kill counter — only shown inside a wave encounter (js/data.js's
+  // `wave: true` rooms, currently just Sherwood's Sunken Trail).
+  const waveLabelEl = document.getElementById('waveLabel');
+  waveLabelEl.classList.toggle('hidden', !s.wave);
+  if(s.wave) waveLabelEl.textContent = `Cleared: ${s.wave.killsSoFar}/${s.wave.killTarget}`;
+
+  // Family currency — always visible, ambient "the numbers are moving"
+  // signal even with nothing to spend it on yet (§11/§12 Phase 5).
+  document.getElementById('currencyLabel').textContent = 'Coffers: ' + (s.family ? s.family.currency : 0);
 
   const c = CLASSES[me.classKey];
   setCdVisual('cdSpecial1', me.cds.special1, c.special1 ? c.special1.cd : 1);
@@ -191,8 +212,14 @@ function checkRoomTransition(s){
   lastRoomId = s.roomId;
   const dungeon = dungeonByName(s.dungeonName);
   if(!dungeon) return;
-  if(s.safe) showBanner("Safe Room — gather your party, then head for the light");
-  else showBanner(s.boss ? dungeon.bossIntroText : s.dungeonName);
+  if(s.safe){ showBanner("Safe Room — gather your party, then head for the light"); return; }
+  if(!s.boss){ showBanner(s.dungeonName); return; }
+  // A rare boss variant (js/data.js's rareVariant, e.g. blackKnightRare)
+  // carries its own introText — fall back to the dungeon's standard one
+  // when the room rolled the ordinary boss.
+  const bossMon = s.monsters.find(m => m.boss);
+  const bossType = bossMon && ENEMY_TYPES[bossMon.type];
+  showBanner((bossType && bossType.introText) || dungeon.bossIntroText);
 }
 
 // Same idea as checkRoomTransition, but for the branch fork — roomId
@@ -206,10 +233,21 @@ function checkBranchTransition(s){
   lastBranchState = state;
   if(state === 'awaiting_choice') showBanner("A fork in the path…");
   else if(state === 'in_side_chamber'){
-    const dungeon = dungeonByName(s.dungeonName);
-    const sideChamber = dungeon && dungeon.sideChamber;
-    if(sideChamber) showBanner(sideChamber.name);
+    const room = currentRoomData(s);
+    if(room && room.sideChamber) showBanner(room.sideChamber.name);
   }
+}
+
+// The reward banner (server.js's rewardBanner — boss-defeat flavor text +
+// currency earned) is only set for the few seconds of the post-boss
+// "advancing" pause, so this edge-triggers on it going non-null the same
+// way the others edge-trigger on their own state. Given a longer visible
+// duration than the default banner so it survives the whole pause.
+let lastRewardBanner = null;
+function checkRewardBanner(s){
+  if(s.rewardBanner === lastRewardBanner) return;
+  lastRewardBanner = s.rewardBanner;
+  if(s.rewardBanner) showBanner(s.rewardBanner, 3200);
 }
 
 // ---------- DRAW ----------
@@ -231,6 +269,7 @@ function draw(s){
   ctx.clearRect(0, 0, W, H);
   if(!s) return;
 
+  const me = myPlayer(); // needed below for the auto-attack target-lock ring
   const dungeon = dungeonByName(s.dungeonName);
   // The safe room always reads as warm/torch-lit regardless of which
   // dungeon it belongs to — a deliberate visual break from the danger
@@ -265,8 +304,8 @@ function draw(s){
     drawGate(s.safeExit, [232, 193, 74], s.waitingForFamily ? "Waiting for the whole family…" : "Enter when ready");
   }
   if(s.branch){
-    const dungeon = dungeonByName(s.dungeonName);
-    const sideChamber = dungeon && dungeon.sideChamber;
+    const room = currentRoomData(s);
+    const sideChamber = room && room.sideChamber;
     if(s.branch.state === 'awaiting_choice'){
       drawGate(s.branch.mainExit, [232, 193, 74], "Continue on");
       drawGate(s.branch.sideExit, [212, 60, 45], sideChamber ? sideChamber.warningText : "A harder road");
@@ -327,6 +366,32 @@ function draw(s){
       ctx.strokeStyle = "rgba(255,60,60,0.85)"; ctx.lineWidth = 3;
       ctx.arc(mon.x, mon.y, mon.slamRadius, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = "rgba(255,60,60,0.15)"; ctx.fill();
+    }
+    // Charge (js/data.js's blackKnight charge* fields) — the telegraph draws
+    // the actual dash line before it happens (direction locks in server-side
+    // at telegraph start, see server.js's tickMonsters), so it's a real
+    // dodge cue, not just decoration.
+    if(mon.chargeState === 'telegraph'){
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,150,40,0.85)"; ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(mon.x, mon.y);
+      ctx.lineTo(mon.x + mon.chargeDirX * 220, mon.y + mon.chargeDirY * 220);
+      ctx.stroke();
+      ctx.restore();
+    } else if(mon.chargeState === 'dashing'){
+      ctx.strokeStyle = "rgba(255,150,40,0.9)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(mon.x, mon.y, mon.radius + 6, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Target-lock ring (auto-attack, server.js's tickAutoAttack) — only
+    // drawn for the local player's own locked target, so it reads as "what
+    // I'm fighting," not clutter from every player's target at once.
+    if(me && me.targetId === mon.id){
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.arc(mon.x, visualCenterY, visualRadius + 10, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
   });
 
@@ -434,6 +499,7 @@ function renderLoop(){
   if(state === 'game' && latestState){
     checkRoomTransition(latestState);
     checkBranchTransition(latestState);
+    checkRewardBanner(latestState);
     updateHud(latestState);
     updateRoster(latestState);
     draw(latestState);

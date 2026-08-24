@@ -239,9 +239,10 @@ function getFamilyState(){
   return { currency: state.family.currency, unlocks: state.family.unlocks.slice() };
 }
 
-// Not called anywhere yet — no in-game currency-earning event exists.
-// Here so Phase 3/5 has a ready primitive instead of hand-rolling file I/O
-// then.
+// Called by server.js's onBossDefeated() — the first in-game event that
+// actually earns currency (Sherwood Approach's boss-clear reward, added
+// alongside the rest of §12 Phase 5's ready-but-unused primitives; no
+// spend destination exists yet).
 function addFamilyCurrency(amount){
   state.family.currency += amount;
   persist();

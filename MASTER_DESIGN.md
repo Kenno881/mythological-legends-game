@@ -102,6 +102,25 @@ beyond the session they happen in.
 - Sherwood Approach's first chamber branches into an optional side
   chamber (2026-08-23, §9) — tougher fight, guaranteed loot, clearly
   warned before committing. Only this one dungeon/branch so far.
+- **First slice of the Phase 4 run-model, shipped on Sherwood Approach
+  only (2026-08-24) — see §9/§13.** Basic attack is now automatic with
+  target-lock (`tickAutoAttack`, `server.js`) across every class/dungeon;
+  specials stay manual. Sherwood itself gained: a second branch (Old
+  Watchtower → the Poacher's Den) guarded by the first real mini-boss,
+  the Bandit Captain (§6's mini-boss tier, previously unoccupied); a
+  continuous-spawn wave room (The Sunken Trail, kill-count-driven
+  escalation — resolves the §13 "escalation driver" question); the Black
+  Knight gained a second mechanic (a telegraphed Charge dash, alongside
+  the existing slam) and a 12% chance to instead be a named rare variant,
+  Sir Gorlagon the Crimson Knight, with bumped stats, guaranteed extra
+  loot, and his own flavor text; and a boss clear now awards family
+  currency (`db.addFamilyCurrency`, previously unused — first thing that
+  actually calls it) shown on an extended, actually-readable post-boss
+  reward banner. `sideChamber` moved from the dungeon onto individual
+  branch rooms so a dungeon can hold more than one. Deliberately scoped
+  to Sherwood only — the other 3 dungeons still run the old fixed-room
+  model; extending this pattern to them is unstarted, same as branching
+  chambers before it.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
@@ -123,9 +142,14 @@ beyond the session they happen in.
 - Flat loot drop (35% per kill, 100% from bosses) — no rarity tiers yet.
 
 ### Known gaps (Campaign)
-- All four bosses share one mechanic (telegraphed AoE slam) at different
-  numbers. No boss has a mechanic distinct to its legend yet.
-- No rare/named spawns. No weighted loot rarity.
+- Three of four bosses still only have the shared telegraphed AoE slam at
+  different numbers — the Black Knight is the first exception (Charge, a
+  telegraphed dash, added 2026-08-24 alongside his slam). Green Knight,
+  Mordred, and the Questing Beast still have no mechanic distinct to
+  their own legend.
+- One rare/named spawn exists now (Sherwood's Sir Gorlagon, 2026-08-24) —
+  the other 3 dungeons still have none. Still no weighted loot rarity
+  system generally, just the guaranteed-vs-35%-chance drop rule.
 - Threat is "nearest player, unless taunted" — no accumulating threat table,
   so healing doesn't pull aggro the way it would on a real threat system.
 
@@ -185,7 +209,7 @@ turning into an unorganized pile.
 
 | # | Name | Theme | Level requirement | Standard boss | Rare/named boss variant |
 |---|---|---|---|---|---|
-| 1 | Sherwood Approach | Forest, tutorial | 1 (always open) | Black Knight of the Ford | TBD |
+| 1 | Sherwood Approach | Forest, tutorial | 1 (always open) | Black Knight of the Ford | Sir Gorlagon, the Crimson Knight (2026-08-24, 12% roll) |
 | 2 | The Sunken Chapel | Flooded, undead | TBD | Green Knight | TBD |
 | 3 | Mordred's Keep | Dark, knights | TBD | Mordred (or his lieutenant — see below) | TBD |
 | 4 | Avalon's Mist | Mystical | TBD | The Questing Beast | TBD |
@@ -269,7 +293,7 @@ direKnight/darkKnight → mistWraith), all defined in `ENEMY_TYPES` in
 | Tier | Where it appears | Loot | Mechanic complexity |
 |---|---|---|---|
 | Trash | Continuous spawn escalation (§9) | Common drops only | None beyond base AI |
-| **Mini-boss** *(new)* | Guards a side chamber/branch in the maze, not the critical path | Better-than-trash guaranteed drop | One real mechanic, not a full boss kit |
+| **Mini-boss** | Guards a side chamber/branch in the maze, not the critical path | Better-than-trash guaranteed drop | One real mechanic, not a full boss kit — first one built: Sherwood's Bandit Captain (2026-08-24, a slam cleave), guarding the Poacher's Den |
 | Dungeon boss | End of dungeon | Guaranteed dungeon-tier loot | Full mechanic (slam + planned unique mechanics, §5) |
 | Rare/named boss variant | Rare roll in place of the standard dungeon boss (§9) | Guaranteed better loot than standard | Standard boss kit + a twist |
 | Campaign villain | Named story beats — Mordred, Queen Mab | Best-in-slot / unique | Bespoke, built individually rather than from the tier template |
@@ -425,16 +449,31 @@ layouts + spawn tables + boss rosters on the same engine.
 combat, sprite art, gear tiers, leveling/boon system (§10).
 
 **Branching side chambers — first exploration content, shipped
-2026-08-23.** Sherwood Approach's room 1 now forks: clear it and two
-gates appear instead of auto-advancing — continue on, or take an
-optional detour into a tougher fight with guaranteed loot, clearly
-warned as the harder road before committing. Both routes reconverge at
-room 2. Currently just the one chamber in the one dungeon actually being
-played (§12 Phase 1's "prove it on one dungeon" pattern) — extending the
-same pattern to the other 3 dungeons, and to more than one branch per
-dungeon, is unstarted. **This is optional extra risk a player chooses,
-not the mandatory wipe condition Pillar 5 below is actually asking for**
-— the main path is exactly as failure-free as it always was.
+2026-08-23, extended to a second branch 2026-08-24.** Sherwood Approach's
+room 1 forks: clear it and two gates appear instead of auto-advancing —
+continue on, or take an optional detour into a tougher fight with
+guaranteed loot, clearly warned as the harder road before committing.
+Both routes reconverge at the next room. Room 2 (Old Watchtower) now
+forks the same way into the Poacher's Den, guarded by the Bandit Captain
+mini-boss (§6) — `sideChamber` moved from the dungeon onto individual
+branch rooms to make a second branch possible at all. Still just Sherwood
+(§12 Phase 1's "prove it on one dungeon" pattern) — extending the pattern
+to the other 3 dungeons is unstarted. **This is optional extra risk a
+player chooses, not the mandatory wipe condition Pillar 5 below is
+actually asking for** — the main path is exactly as failure-free as it
+always was.
+
+**Escalating spawn tables — first slice shipped 2026-08-24, Sherwood
+only.** Resolves the "primary escalation driver" open question below:
+**kill count**, not wall-clock time. Sherwood's Sunken Trail (room 3) is a
+continuous-spawn wave encounter — enemies trickle in up to a live cap,
+spawn rate and toughness step up as the party's kill count in that room
+climbs, and the room only clears once a kill quota is hit and the board
+is empty. Auto-attack + target-lock (also shipped 2026-08-24) is now the
+combat input everywhere, not just this room — every class's basic attack
+fires automatically at a locked target; specials remain manual. Neither
+change extends to the other 3 dungeons yet, which still use the original
+fixed-room-of-enemies model.
 
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need
@@ -445,7 +484,6 @@ resets to that dungeon's safe room at full HP. A real fail state, not
 just an inconvenience, without being a hard account/character reset.
 
 **Open questions:**
-- Primary escalation driver: run time, kill count, or both?
 - Exact level thresholds per dungeon (§5).
 - Whether a wipe should ever cost something beyond lost time (a death
   counter, a run-time penalty) — currently a wipe is "try the same
@@ -646,13 +684,19 @@ as-is regardless of the run-model change)*
 - [ ] Boon-choice UI (client)
 
 **Phase 4 — Dungeon run rework**
-- [ ] Escalating spawn tables within the existing maze/room structure (§9)
-- [ ] Auto-attack + target-lock as the shared input model
-- [ ] Boss-encounter trigger logic: probabilistic timing, standard vs.
-      rare/named roll, weighted loot tied to which boss shows up
+- [x] Auto-attack + target-lock as the shared input model *(done
+      2026-08-24 — every class/dungeon, specials stay manual)*
+- [x] Escalating spawn tables within the existing maze/room structure (§9)
+      *(done 2026-08-24, Sherwood's Sunken Trail only — kill-count driven;
+      other 3 dungeons still unconverted)*
+- [x] Boss-encounter trigger logic: probabilistic standard vs. rare/named
+      roll *(done 2026-08-24, Sherwood's Black Knight/Sir Gorlagon only —
+      rolled once at boss-room load, not a mid-run ambush; loot tied to
+      which boss shows up via `rewardCurrency`/guaranteed extra drop)*
 - [ ] Level-gated dungeon unlock sequence (§5)
 - [ ] Weapon/Armor tier ladders + Artifact drop tables per dungeon/boss (§7)
-- [ ] Resolve remaining open questions in §9/§13 before starting
+- [ ] Extend auto-attack's engine-wide but everything else above to the
+      other 3 dungeons (Sunken Chapel, Mordred's Keep, Avalon's Mist)
 
 **Phase 5 — Meta-progression**
 - [ ] Currency-per-run
@@ -687,7 +731,6 @@ as-is regardless of the run-model change)*
 
 - **Where Arc I climaxes** — reorder Mordred's Keep to be last, or add
   Camlann as a 5th capstone dungeon (§5). Leaning toward Camlann.
-- Primary escalation driver: run time, kill count, or both? (§9)
 - Whether a wipe should ever cost more than lost time (a death counter,
   a time penalty) beyond "try the dungeon again from its safe room" (§9)
 - Skill loadouts (§10a): the 4th loadout slot's category, whether a
@@ -769,3 +812,15 @@ as-is regardless of the run-model change)*
   back up) and wipe (whole party down resets the dungeon to its safe
   room) are both shipped, making Pillar 5 real rather than aspirational
   (§2, §9, decided and shipped 2026-08-23).
+- Escalation driver for continuous-spawn wave rooms is kill count, not
+  wall-clock time — spawn rate/toughness scale with kills in that room,
+  and the room clears on a kill quota plus an empty board (§9, decided
+  and shipped on Sherwood's Sunken Trail, 2026-08-24).
+- Rare/named boss variants are rolled once, when the boss room loads, not
+  as a mid-run ambush — simplest slice of "probabilistic boss triggers"
+  that fits today's fixed boss rooms (§5/§6/§9, decided and shipped for
+  Sherwood's Black Knight → Sir Gorlagon roll, 2026-08-24).
+- Currency-on-clear amounts: 30 on a standard dungeon-boss kill, 60 on a
+  rare variant, both via the existing `db.addFamilyCurrency` — no spend
+  destination exists yet (§11/§12 Phase 5 still open), this only starts
+  the number moving (decided and shipped 2026-08-24).
