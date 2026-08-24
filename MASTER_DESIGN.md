@@ -175,6 +175,19 @@ beyond the session they happen in.
   let a solo `test` account back in past the safe room; an empty instance
   was torn down automatically. Each dungeon also gained real lore (why/
   objective/reward) shown on its select-screen card — see §5.
+- **Fixed the "grey screen" bug in dungeon-select, 2026-08-24 — reported
+  by the user right after the above shipped.** Picking a dungeon card
+  used to switch to the game screen the instant the join message was
+  *sent*, not once the server actually confirmed it — fine on low-latency
+  local testing, but on a real connection there's a real gap, and a
+  silently-rejected join (no reply was ever sent for that case) left the
+  screen permanently blank with nothing to draw and no error shown.
+  `server.js`'s join handler now always replies (`joinResult`, with a
+  reason on failure); the client waits for that or the first real state
+  broadcast — whichever arrives first — before switching screens, and
+  times out into a visible, retryable error after 6s if neither shows up.
+  Confirmed live: normal join still resolves in ~20ms, and a forced
+  rejection now shows a real message instead of hanging.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a

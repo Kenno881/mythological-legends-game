@@ -129,6 +129,12 @@ function attemptConnect(passphrase){
         latestState = null;
         myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;
         if(typeof onLeftInstance === 'function') onLeftInstance(msg);
+      } else if(msg.type === 'joinResult'){
+        // Explicit reply to sendJoin() — js/main.js waits for this (ok:true)
+        // or the first 'state' broadcast, whichever arrives first, before
+        // actually switching to the game screen; ok:false surfaces a real
+        // error instead of leaving the screen stuck with nothing to draw.
+        if(typeof onJoinResult === 'function') onJoinResult(msg);
       } else if(msg.type === 'state'){
         latestState = msg;
         myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;

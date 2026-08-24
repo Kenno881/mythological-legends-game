@@ -550,16 +550,30 @@ function handleMessage(id, msg){
   }
 
   if(msg.type === 'join'){
+    // Always reply — the client waits for this (or the first state
+    // broadcast) before switching to the game screen rather than assuming
+    // success the instant the message is sent (js/main.js). A silently
+    // ignored join used to leave the client stuck on a blank game screen
+    // forever with no feedback — confirmed live 2026-08-24, "the grey
+    // screen bug" — since nothing ever arrived to draw.
+    const replyWs = clients.get(id);
+    function reject(reason){
+      if(replyWs) replyWs.send(JSON.stringify({ type: 'joinResult', ok: false, reason }));
+    }
+
     // Refuse to clobber a live entry, dead or alive — a dead one now needs
     // reviving (or a full wipe) rather than a fresh join; see REVIVE/WIPE
     // at the top of this file. Only ever runs against an account with no
     // active instance at all: a brand new session, or right after
     // returnToDungeonSelect/leaveDungeon.
-    if(playerInstance.has(id)) return;
+    if(playerInstance.has(id)){ reject('already_active'); return; }
     const character = db.getCharacter(id, msg.characterId);
-    if(!character) return; // unknown/stale characterId — client's roster is out of sync, ignore
+    if(!character){ reject('unknown_character'); return; } // unknown/stale characterId — client's roster is out of sync
     const dungeonIndex = Number(msg.dungeonIndex);
-    if(!Number.isInteger(dungeonIndex) || dungeonIndex < 0 || dungeonIndex >= DUNGEONS.length) return;
+    if(!Number.isInteger(dungeonIndex) || dungeonIndex < 0 || dungeonIndex >= DUNGEONS.length){
+      reject('invalid_dungeon');
+      return;
+    }
 
     const inst = getOrCreateInstance(dungeonIndex);
     const classKey = CLASSES[character.classKey] ? character.classKey : 'squire';
@@ -590,6 +604,7 @@ function handleMessage(id, msg){
     playerInstance.set(id, dungeonIndex);
     db.savePlayerStats(inst.players[id]); // persist the resolved name even if stats themselves are unchanged
     console.log(`[join] ${id} as ${classKey} into ${DUNGEONS[dungeonIndex].name} (character ${character.id})`);
+    if(replyWs) replyWs.send(JSON.stringify({ type: 'joinResult', ok: true }));
     return;
   }
 

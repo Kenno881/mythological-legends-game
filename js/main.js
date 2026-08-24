@@ -127,8 +127,17 @@ function playCharacter(characterId){
 }
 
 const dungeonList = document.getElementById('dungeonList');
+const dungeonSelectStatus = document.getElementById('dungeonSelectStatus');
+
+// Guards the window between sending 'join' and actually knowing whether it
+// worked — see JOIN CONFIRMATION below. Only one join attempt in flight at
+// a time; a card click while one's already pending is ignored rather than
+// firing a second join.
+let awaitingJoin = false;
+let joinTimeoutId = null;
 
 function renderDungeonSelect(){
+  dungeonSelectStatus.textContent = '';
   dungeonList.innerHTML = '';
   DUNGEONS.forEach((d, idx)=>{
     const cleared = myDungeonsCleared.includes(d.name);
@@ -147,18 +156,60 @@ function renderDungeonSelect(){
         <p class="lore-line"><span class="lore-label">Reward:</span> ${d.lore.reward}</p>
       ` : ''}
     `;
-    div.addEventListener('click', ()=>{
-      if(sendJoin(pendingCharacterId, idx)) showScreen('game');
-      else console.warn('[main] not connected yet — try again in a moment');
-    });
+    div.addEventListener('click', ()=> attemptJoin(idx));
     dungeonList.appendChild(div);
   });
+}
+
+// ---------- JOIN CONFIRMATION ----------
+// A join used to switch to the game screen the instant sendJoin() returned
+// true — which only means "the socket was open enough to queue a send,"
+// not "the server actually accepted it." On a real (non-localhost)
+// connection the gap before the first real confirmation arrives is long
+// enough to notice, and if the join was ever silently rejected or dropped,
+// nothing would ever arrive to draw — a permanent blank grey game screen
+// with no error shown. Confirmed live 2026-08-24 ("the grey screen bug").
+// Now: wait for an explicit joinResult (ok:true) or the first real state
+// broadcast — whichever comes first — before switching screens, and time
+// out with a visible, retryable error if neither shows up.
+function attemptJoin(dungeonIndex){
+  if(awaitingJoin) return;
+  awaitingJoin = true;
+  dungeonSelectStatus.textContent = '';
+  if(!sendJoin(pendingCharacterId, dungeonIndex)){
+    awaitingJoin = false;
+    dungeonSelectStatus.textContent = 'Not connected yet — try again in a moment.';
+    return;
+  }
+  joinTimeoutId = setTimeout(()=>{
+    if(!awaitingJoin) return;
+    awaitingJoin = false;
+    dungeonSelectStatus.textContent = "That didn't go through — try again.";
+  }, 6000);
+}
+
+function clearJoinWait(){
+  awaitingJoin = false;
+  if(joinTimeoutId){ clearTimeout(joinTimeoutId); joinTimeoutId = null; }
+}
+
+function onJoinResult(msg){
+  if(!awaitingJoin) return; // already resolved via the first state broadcast — nothing left to do
+  if(msg.ok){ clearJoinWait(); showScreen('game'); return; }
+  clearJoinWait();
+  const reasons = {
+    already_active: "Already in a dungeon on another device — leave that one first.",
+    unknown_character: 'That character is out of sync — pick again from the roster.',
+    invalid_dungeon: 'Something went wrong picking that dungeon — try again.'
+  };
+  dungeonSelectStatus.textContent = reasons[msg.reason] || 'Something went wrong — try again.';
 }
 
 // Reply to sendReturnToDungeonSelect() — same connection, still logged in,
 // just back to picking (net.js already refreshed myDungeonsCleared from
 // this message before calling here).
 function onLeftInstance(){
+  clearJoinWait();
   renderDungeonSelect();
   showScreen('dungeonSelect');
 }
@@ -349,6 +400,11 @@ const fallenOverlay = document.getElementById('fallenOverlay');
 const reviveBar = document.getElementById('reviveBar');
 
 function onStateUpdate(s){
+  // A state broadcast arriving at all is proof the join went through —
+  // resolves the join wait even if the explicit joinResult (net.js) got
+  // here second, or got lost. See JOIN CONFIRMATION above.
+  if(awaitingJoin){ clearJoinWait(); showScreen('game'); }
+
   if(s.dungeonSummary && !dungeonSummaryShown){
     dungeonSummaryShown = true;
     showDungeonComplete(s.dungeonSummary);
