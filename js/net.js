@@ -46,6 +46,11 @@ let myIsTest = false;
 let resuming = false; // did this connection reattach to an existing character?
 let connStatus = "idle"; // "idle" | "connecting" | "open" | "closed"
 let latestState = null; // last {type:"state", ...} payload received
+// Which dungeons the family has cleared at least once — from 'welcome',
+// refreshed by every 'state' broadcast while in a run and by 'leftInstance'
+// right after leaving one, so the dungeon-select screen always has a
+// reasonably fresh copy without a dedicated round-trip (server.js).
+let myDungeonsCleared = [];
 
 // Doesn't connect until someone actually submits a passphrase (see main.js's
 // title-screen handler) — the passphrase check happens during the WebSocket
@@ -106,6 +111,7 @@ function attemptConnect(passphrase){
         resuming = !!msg.resuming;
         myCharacters = msg.characters || [];
         myIsTest = !!msg.isTest;
+        myDungeonsCleared = msg.dungeonsCleared || [];
         console.log(`[net] welcome, id = ${myId}${resuming ? ' (resuming existing character)' : ''}`);
         clearTimeout(timeout);
         settle(true); // no-op if the 'open' fast-path above already settled this
@@ -119,8 +125,13 @@ function attemptConnect(passphrase){
       } else if(msg.type === 'leftDungeon'){
         myId = null; resuming = false; latestState = null;
         if(typeof onLeftDungeon === 'function') onLeftDungeon();
+      } else if(msg.type === 'leftInstance'){
+        latestState = null;
+        myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;
+        if(typeof onLeftInstance === 'function') onLeftInstance(msg);
       } else if(msg.type === 'state'){
         latestState = msg;
+        myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;
         if(typeof onAudioState === 'function') onAudioState(msg);
         if(typeof onStateUpdate === 'function') onStateUpdate(msg);
       }
@@ -146,15 +157,24 @@ function sendDeleteCharacter(characterId){
   return true;
 }
 
-function sendJoin(characterId){
+function sendJoin(characterId, dungeonIndex){
   if(!ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify({ type: 'join', characterId }));
+  ws.send(JSON.stringify({ type: 'join', characterId, dungeonIndex }));
   return true;
 }
 
 function sendLeaveDungeon(){
   if(!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify({ type: 'leaveDungeon' }));
+  return true;
+}
+
+// Leaves the current instance without logging the account out — same
+// connection, just back to picking a dungeon (server.js's
+// returnToDungeonSelect, replies 'leftInstance').
+function sendReturnToDungeonSelect(){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'returnToDungeonSelect' }));
   return true;
 }
 

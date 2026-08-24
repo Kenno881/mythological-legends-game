@@ -213,7 +213,14 @@ function checkRoomTransition(s){
   const dungeon = dungeonByName(s.dungeonName);
   if(!dungeon) return;
   if(s.safe){ showBanner("Safe Room — gather your party, then head for the light"); return; }
-  if(!s.boss){ showBanner(s.dungeonName); return; }
+  if(!s.boss){
+    // A room can carry its own loreText (js/data.js — the "deeper in, more
+    // lore" idea, Sherwood only for now) — falls back to the plain
+    // dungeon name for rooms that don't define one.
+    const room = currentRoomData(s);
+    showBanner((room && room.loreText) || s.dungeonName);
+    return;
+  }
   // A rare boss variant (js/data.js's rareVariant, e.g. blackKnightRare)
   // carries its own introText — fall back to the dungeon's standard one
   // when the room rolled the ordinary boss.

@@ -74,6 +74,16 @@ const DUNGEONS = [
     floorColor: "#2f3b23", wallColor: "#1c2417",
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
+    // Shown on the dungeon-select screen — why the party's here, what
+    // needs doing, and what's actually at stake (§ dungeon-select,
+    // 2026-08-24). Every dungeon carries one of these; only Sherwood gets
+    // per-room loreText too (below) as the "deeper in, more lore" proof
+    // of concept — extending that to the other 3 is a later pass.
+    lore: {
+      why: "Bandits have overrun the old forest road into Camelot, and Merlin senses a darker presence behind them — a fallen knight guarding the ford beyond.",
+      objective: "Clear the road, break the bandits' hold, and put down whatever commands them at the ford.",
+      reward: "Safe passage to the marshlands beyond, and the first coin for the family's coffers."
+    },
     rooms: [
       { safe: true, enemies: [] },
       // Forest Path — forks into the Ambush Hollow (branch: true below).
@@ -81,6 +91,7 @@ const DUNGEONS = [
       // one, plus a bandit) in exchange for a guaranteed drop instead of
       // the usual 35% chance — see server.js's dropLoot().
       { branch: true,
+        loreText: "Bandit tracks crisscross the muddy road — they're closer to Camelot than anyone realized.",
         sideChamber: {
           name: "The Ambush Hollow",
           warningText: "A harder road — tougher foes wait, but the loot is worth it.",
@@ -98,6 +109,7 @@ const DUNGEONS = [
       // (the Bandit Captain, §6 of MASTER_DESIGN.md's encounter tiers —
       // first thing to actually occupy that tier) for guaranteed loot.
       { branch: true,
+        loreText: "An abandoned watchtower looms ahead, its garrison long since turned to banditry.",
         sideChamber: {
           name: "The Poacher's Den",
           warningText: "Their captain keeps watch here — worth the fight.",
@@ -115,6 +127,7 @@ const DUNGEONS = [
       // now). Kill quota drives escalation: spawns get faster and enemies
       // get tougher as killsSoFar climbs — see server.js's tickWaveSpawns.
       { wave: true, killTarget: 14, maxAlive: 5,
+        loreText: "The road dips into marshland — and something is stirring in the reeds ahead.",
         spawnPoints: [
           {x:450, y:200}, {x:700, y:250}, {x:300, y:500},
           {x:650, y:550}, {x:500, y:400}
@@ -132,6 +145,11 @@ const DUNGEONS = [
     floorColor: "#233a3d", wallColor: "#122024",
     bossIntroText: "A hush falls — the Green Knight rises from the flooded nave",
     bossDefeatText: "The Green Knight yields the exchange! Deeper into the keep...",
+    lore: {
+      why: "A flooded chapel deep in the marsh has begun raising its own dead — the Green Knight himself is said to walk its nave again.",
+      objective: "Wade through the drowned dead and put the Green Knight's exchange to rest for good.",
+      reward: "The keep beyond finally opens, and whatever the flooded chapel has kept safe all these years."
+    },
     rooms: [
       { safe: true, enemies: [] },
       { enemies: [
@@ -149,6 +167,11 @@ const DUNGEONS = [
     floorColor: "#2a2226", wallColor: "#150f12",
     bossIntroText: "Mordred himself descends the stair, blade drawn",
     bossDefeatText: "Mordred is cast down! Only the mist-shrouded peak remains...",
+    lore: {
+      why: "Mordred has raised a keep of dark and dire knights, plotting against the Round Table from behind its walls.",
+      objective: "Cut through his knights and confront Mordred himself before his plot reaches Camelot.",
+      reward: "The road to Avalon opens, and a traitor finally answered for."
+    },
     rooms: [
       { safe: true, enemies: [] },
       { enemies: [
@@ -168,6 +191,11 @@ const DUNGEONS = [
     bossDefeatText: "The Questing Beast falls silent. Camelot is saved.",
     finalVictoryTitle: "Camelot is Saved",
     finalVictorySubtitle: "The Round Table stands whole once more. Well fought, champion.",
+    lore: {
+      why: "Beyond the mist, the Questing Beast stirs — the last guardian standing between Camelot and lasting peace.",
+      objective: "Cross the mist-shrouded peak and face the Beast itself.",
+      reward: "Camelot saved, and the Round Table's name secured for good."
+    },
     rooms: [
       { safe: true, enemies: [] },
       { enemies: [

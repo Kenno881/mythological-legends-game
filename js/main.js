@@ -11,6 +11,7 @@ const screens = {
   title: document.getElementById('screen-title'),
   login: document.getElementById('screen-login'),
   characters: document.getElementById('screen-characters'),
+  dungeonSelect: document.getElementById('screen-dungeon-select'),
   game: document.getElementById('screen-game'),
   dungeonComplete: document.getElementById('screen-dungeon-complete'),
   end: document.getElementById('screen-end')
@@ -109,9 +110,57 @@ function onCharacterList(msg){
   if(state === 'characters') showRosterPanel();
 }
 
+// ---------- DUNGEON SELECT ----------
+// Any dungeon can be picked from the outset (MASTER_DESIGN.md's §5
+// sequential/level-gated unlock doesn't apply yet — no leveling system
+// exists to gate on). A cleared dungeon is unrestricted for anyone, any
+// subset, any time; an uncleared one still needs the whole family present
+// once inside its safe room — that part is enforced server-side
+// (tickSafeRoom/familyFullyConnected) and just surfaces here as a badge,
+// not a hard block on selecting it at all.
+let pendingCharacterId = null; // chosen character, carried from screen-characters into screen-dungeon-select
+
 function playCharacter(characterId){
-  if(sendJoin(characterId)) showScreen('game');
-  else console.warn('[main] not connected yet — try again in a moment');
+  pendingCharacterId = characterId;
+  renderDungeonSelect();
+  showScreen('dungeonSelect');
+}
+
+const dungeonList = document.getElementById('dungeonList');
+
+function renderDungeonSelect(){
+  dungeonList.innerHTML = '';
+  DUNGEONS.forEach((d, idx)=>{
+    const cleared = myDungeonsCleared.includes(d.name);
+    const needsFamily = idx > 0 && !cleared;
+    const div = document.createElement('div');
+    div.className = 'dungeon-card';
+    div.innerHTML = `
+      <div class="dungeon-card-head">
+        <h3>${d.name}</h3>
+        ${cleared ? '<span class="dungeon-badge cleared">Cleared</span>' : ''}
+        ${needsFamily ? '<span class="dungeon-badge needs-family">Needs the full family</span>' : ''}
+      </div>
+      ${d.lore ? `
+        <p class="lore-line"><span class="lore-label">Why:</span> ${d.lore.why}</p>
+        <p class="lore-line"><span class="lore-label">Objective:</span> ${d.lore.objective}</p>
+        <p class="lore-line"><span class="lore-label">Reward:</span> ${d.lore.reward}</p>
+      ` : ''}
+    `;
+    div.addEventListener('click', ()=>{
+      if(sendJoin(pendingCharacterId, idx)) showScreen('game');
+      else console.warn('[main] not connected yet — try again in a moment');
+    });
+    dungeonList.appendChild(div);
+  });
+}
+
+// Reply to sendReturnToDungeonSelect() — same connection, still logged in,
+// just back to picking (net.js already refreshed myDungeonsCleared from
+// this message before calling here).
+function onLeftInstance(){
+  renderDungeonSelect();
+  showScreen('dungeonSelect');
 }
 
 // ---------- TITLE SCREEN: PASSPHRASE GATE ----------
@@ -264,6 +313,19 @@ function formatDuration(totalSeconds){
 }
 
 function showDungeonComplete(summary){
+  // campaignVictory (server.js's onBossDefeated — true only on the actual
+  // clear that completes all 4 Arc I dungeons for the first time ever)
+  // shows the existing "Camelot is Saved" screen instead of the regular
+  // per-dungeon summary. Victory is a one-time celebration now, not a
+  // dead end — dismissing it goes back to dungeon-select same as anything
+  // else (see #screen-end's button below), the campaign stays playable.
+  if(summary.campaignVictory){
+    const d = DUNGEONS[DUNGEONS.length - 1];
+    document.getElementById('endTitle').textContent = d.finalVictoryTitle;
+    document.getElementById('endSubtitle').textContent = d.finalVictorySubtitle;
+    showScreen('end');
+    return;
+  }
   document.getElementById('dcTitle').textContent = `Dungeon Cleared: ${summary.dungeonName}`;
   document.getElementById('dcFlavor').textContent = summary.flavorText;
   document.getElementById('dcTime').textContent = formatDuration(summary.elapsedSeconds);
@@ -273,11 +335,13 @@ function showDungeonComplete(summary){
   showScreen('dungeonComplete');
 }
 
-// Dismissing just returns to the game screen — by then the server has
-// already (or is about to) advance the dungeon underneath; if it's the
-// campaign's last boss, the very next state broadcast's `victory` flag
-// takes over from here (see onStateUpdate below), no special-casing needed.
-document.getElementById('btnDcContinue').addEventListener('click', ()=> showScreen('game'));
+// Dismissing either the regular summary or the victory screen leaves the
+// current (already-cleared) instance and returns to dungeon-select rather
+// than assuming a fixed "next dungeon" — there isn't one anymore now that
+// any dungeon can be picked (net.js's onLeftInstance renders the screen
+// once the server confirms).
+document.getElementById('btnDcContinue').addEventListener('click', sendReturnToDungeonSelect);
+document.getElementById('btnRestart').addEventListener('click', sendReturnToDungeonSelect);
 
 // ---------- REACT TO SERVER STATE ----------
 let lastWaitingForFamily = false;
@@ -296,15 +360,7 @@ function onStateUpdate(s){
 
   if(s.waitingForFamily !== lastWaitingForFamily){
     lastWaitingForFamily = s.waitingForFamily;
-    if(s.waitingForFamily) showBanner("Waiting for the whole family before the next dungeon…");
-  }
-
-  if(s.victory){
-    const d = DUNGEONS[DUNGEONS.length - 1];
-    showScreen('end');
-    document.getElementById('endTitle').textContent = d.finalVictoryTitle;
-    document.getElementById('endSubtitle').textContent = d.finalVictorySubtitle;
-    return;
+    if(s.waitingForFamily) showBanner("Waiting for the whole family before continuing…");
   }
 
   // Death no longer leaves the game screen — a dead player stays here,
@@ -319,8 +375,6 @@ function onStateUpdate(s){
     fallenOverlay.classList.add('hidden');
   }
 }
-
-document.getElementById('btnRestart').addEventListener('click', ()=> showScreen('title'));
 
 // ---------- LEAVE DUNGEON ----------
 document.getElementById('btnLeave').addEventListener('click', ()=>{

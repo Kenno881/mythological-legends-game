@@ -1,8 +1,8 @@
 "use strict";
 
 // Authoritative multiplayer server for Quest for Camelot.
-// Holds the true game state (players, monsters, current room) and simulates
-// it on a fixed tick, broadcasting the full state to every connected client.
+// Holds the true game state and simulates it on a fixed tick, broadcasting
+// each dungeon instance's state to only the clients currently inside it.
 // The client never moves itself — it sends input, the server moves the
 // player, the client just renders wherever the server says it is.
 // Run with: npm start   (from this directory)
@@ -19,28 +19,42 @@
 //     {type:"login", username, pin}       only while the connection is pending (no id yet)
 //     {type:"createCharacter", classKey, gender}   add a saved character (max 4 — §8a roster)
 //     {type:"deleteCharacter", characterId}        free up a roster slot
-//     {type:"join", characterId}          play one of this account's saved characters this run
-//                                          — refused if a live entry already exists (alive or
-//                                          dead; a dead one needs reviving or a wipe, not a
-//                                          fresh join, see REVIVE/WIPE below)
+//     {type:"join", characterId, dungeonIndex}     play one of this account's saved characters
+//                                          in the given dungeon (see INSTANCES below) — refused
+//                                          if this account is already active in some instance
+//                                          (leave or returnToDungeonSelect first)
+//     {type:"returnToDungeonSelect"}      leave the current instance without logging out —
+//                                          same connection, back to picking a dungeon
 //     {type:"leaveDungeon"}               log this account's character out cleanly back to
 //                                          title, without disturbing other connected players
-//                                          (unless this is the only one connected — see below)
 //     {type:"input", keys:{up,down,left,right}, action:null|"special1"|"special2"}
 //                                          basic attack is automatic now (see AUTO-ATTACK below) —
 //                                          there is no "attack" action anymore
 //   Server -> Client
 //     {type:"loginResult", ok, accountId?, isNewClaim?, reason?}   reply to "login"
 //     {type:"characterList", characters:[...], error?}   reply to create/deleteCharacter
-//     {type:"welcome", id, roomId, resuming, characters:[...], isTest}   once, right after
-//                                          identity is established (immediately for a
-//                                          remembered device, or right after a successful login)
+//     {type:"welcome", id, roomId, resuming, characters:[...], isTest, dungeonsCleared}
+//                                          once, right after identity is established. roomId is
+//                                          null unless resuming (still active inside a live
+//                                          instance from before a reconnect)
 //     {type:"leftDungeon"}                reply to "leaveDungeon"
+//     {type:"leftInstance", dungeonsCleared}   reply to "returnToDungeonSelect"
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, safe, safeExit:{x,y,r}, wave:{killsSoFar,killTarget}|null,
-//                     family:{currency,unlocks}, dungeonSummary, victory, waitingForFamily}
-//                     every tick (20/s) — each player also carries reviveProgress (see REVIVE/WIPE
-//                     below) and targetId (see AUTO-ATTACK below)
+//                     family:{currency,unlocks}, dungeonsCleared, dungeonSummary, waitingForFamily}
+//                     every tick (20/s), only to clients currently inside that instance — each
+//                     player also carries reviveProgress (see REVIVE/WIPE below) and targetId
+//                     (see AUTO-ATTACK below)
+//
+// INSTANCES: each dungeon a party is actually playing is its own independent
+// "instance" (players/monsters/rooms/etc, see createInstance()) — at most one
+// active instance per dungeon at a time (a second player picking the same
+// dungeon joins the existing one), keyed by dungeonIndex in the `instances`
+// map. An instance is created the moment someone selects that dungeon and
+// torn down the moment it's empty (see the cleanup pass in the tick loop) —
+// run state was always ephemeral and stays that way; only account/family
+// stats persist (server/db.js). `playerInstance` tracks which instance (if
+// any) each connected account is currently in.
 //
 // AUTO-ATTACK & TARGET-LOCK: basic attack fires automatically — no client
 // action needed. Each player locks onto the nearest monster (tickAutoAttack)
@@ -52,27 +66,26 @@
 // currently-connected teammate has to stand within REVIVE_RANGE and hold
 // there for REVIVE_CHANNEL_SECONDS (js/data.js, shared with the client's
 // progress bar) to bring them back at partial HP (tickRevive). If nobody
-// connected is left alive to do that, the whole party wipes: after a
-// short delay everyone's reset to alive/full HP and the dungeon resets to
-// its own safe room (checkForWipe, called from damagePlayer).
+// connected is left alive, the whole party wipes: after a short delay
+// everyone's reset to alive/full HP and the instance resets to its own
+// safe room (checkForWipe, called from damagePlayer).
 //
 // SAFE ROOM & PARTY GATE: every dungeon's room 0 is a safe room (no
 // monsters — see js/data.js's DUNGEONS) where the party can see who's
 // actually here before diving in. Walking into `safeExit` (a fixed spot
-// near the far wall) advances into room 1, the first real chamber. On
-// Sherwood Approach (dungeonIndex 0) that always works — anyone can start,
-// solo or with whoever's around. Every dungeon beyond it also requires all
-// 4 family accounts connected before the exit does anything; standing at
-// it otherwise just sets `waitingForFamily: true` so clients know why
-// nothing happened. See tickSafeRoom().
+// near the far wall) advances into room 1, the first real chamber.
+// Sherwood Approach (dungeonIndex 0) always works — anyone can start, solo
+// or with whoever's around. Any dungeon beyond it that the family hasn't
+// cleared yet also requires all 4 family accounts present *in this same
+// instance* and connected; once a dungeon's been cleared once, it's
+// unrestricted for everyone from then on, solo included. See tickSafeRoom().
 //
-// RECONNECT: players/clients are keyed by the account id, not a per-socket
-// counter. On disconnect a character isn't deleted — it just sits in the
-// world (still simulated, still targetable, not moving since its held keys
-// reset to none) until RECONNECT_GRACE_MS passes with no reconnect, at
+// RECONNECT: a disconnected character isn't deleted — it just sits in its
+// instance (still simulated, still targetable, not moving since its held
+// keys reset to none) until RECONNECT_GRACE_MS passes with no reconnect, at
 // which point it's actually removed. A new socket with the same id within
-// that window cancels the removal and takes over the existing state
-// (position, hp, gear, cooldowns) untouched.
+// that window cancels the removal and resumes in the same instance,
+// position/hp/gear/cooldowns untouched.
 
 const http = require('http');
 const fs = require('fs');
@@ -101,19 +114,19 @@ const SPAWN_GRACE = 3;     // seconds of damage immunity after a (re)join regard
                             // against spawning into a fight, this is just the backstop
 
 // Picks a spawn point near the room's entrance, biased away from whatever
-// monsters are currently alive — so a join/rejoin mid-fight doesn't land
-// someone in the middle of it just because the fight has drifted toward the
-// entrance over time. Falls back to the entrance itself if nothing is alive
-// (or all candidates are equally boxed in) — there's nothing to avoid.
-function pickSpawnPoint(){
+// monsters are currently alive in this instance — so a join/rejoin mid-fight
+// doesn't land someone in the middle of it just because the fight has
+// drifted toward the entrance over time. Falls back to the entrance itself
+// if nothing is alive (or all candidates are equally boxed in).
+function pickSpawnPoint(inst){
   let best = { x: ENTRANCE_X, y: ENTRANCE_Y };
   let bestDist = -Infinity;
   for(let i = 0; i < SPAWN_CANDIDATES; i++){
     const x = ENTRANCE_X + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
     const y = ENTRANCE_Y + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
     let nearest = Infinity;
-    for(const id in monsters){
-      const mon = monsters[id];
+    for(const id in inst.monsters){
+      const mon = inst.monsters[id];
       if(!mon.alive) continue;
       nearest = Math.min(nearest, Math.hypot(mon.x - x, mon.y - y));
     }
@@ -147,25 +160,41 @@ const ACCOUNTS = {
 };
 const FAMILY_IDS = Object.keys(ACCOUNTS).filter(id => !ACCOUNTS[id].isTest);
 
-// ---------- AUTHORITATIVE STATE ----------
-const players = Object.create(null);    // playerId -> player state
-const monsters = Object.create(null);   // monsterId -> monster state
-let projectiles = [];
-let loot = [];
-let dungeonIndex = 0;
-let roomIndex = 0;
-let advancing = false;                  // room/dungeon transition in progress
-let waitingForFamily = false;           // standing at the safe room's exit but not all 4 family accounts are online yet
-let victory = false;
-let dungeonSummary = null;              // set right when a boss dies, cleared after the short advancing pause — see onBossDefeated()
-let dungeonStartedAt = Date.now();      // reset in loadRoom() on leaving the safe room — feeds best-time tracking (server/db.js), not padded by however long the party took to gather
+// ---------- INSTANCES ----------
+// At most one active instance per dungeon (see the top-of-file INSTANCES
+// note) — keyed by dungeonIndex, created lazily on first join, torn down
+// once empty. playerInstance tracks which instance (if any) each connected
+// account currently belongs to; absent means "at dungeon-select."
+const instances = new Map();        // dungeonIndex -> Instance
+const playerInstance = new Map();   // playerId -> dungeonIndex
 
-let monsterSeq = 0, lootSeq = 0, projSeq = 0;
-let dungeonKillCount = 0;               // kills in the current dungeon run — reset alongside dungeonStartedAt, feeds the post-dungeon summary screen
+function createInstance(dungeonIndex){
+  return {
+    dungeonIndex, roomIndex: 0,
+    players: Object.create(null), monsters: Object.create(null),
+    projectiles: [], loot: [],
+    advancing: false, waitingForFamily: false, dungeonSummary: null,
+    dungeonStartedAt: Date.now(), dungeonKillCount: 0,
+    waveState: null, branchState: null
+  };
+}
 
-function currentDungeon(){ return DUNGEONS[dungeonIndex]; }
-function currentRoom(){ return currentDungeon().rooms[roomIndex]; }
-function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
+function getOrCreateInstance(dungeonIndex){
+  let inst = instances.get(dungeonIndex);
+  if(!inst){
+    inst = createInstance(dungeonIndex);
+    instances.set(dungeonIndex, inst);
+    loadRoom(inst, 0);
+    console.log(`[instance] created for ${DUNGEONS[dungeonIndex].name}`);
+  }
+  return inst;
+}
+
+let monsterSeq = 0, lootSeq = 0, projSeq = 0; // shared id counters — fine across instances, just need uniqueness
+
+function currentDungeon(inst){ return DUNGEONS[inst.dungeonIndex]; }
+function currentRoom(inst){ return currentDungeon(inst).rooms[inst.roomIndex]; }
+function currentRoomId(inst){ return `${inst.dungeonIndex}:${inst.roomIndex}`; }
 
 // A solo player kiting one target and a full family of 4 auto-attacking
 // simultaneously clear the exact same monster HP at very different real
@@ -173,14 +202,14 @@ function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 // HP (spawnMonster) and a wave room's kill quota (loadRoom), deliberately
 // NOT to monster damage output — this should make fights take longer with
 // more players, not punish anyone individually. Recomputed at spawn/room-
-// load time from however many characters have actually joined this run
-// (players object, not just currently-connected sockets — a fallen
-// teammate still counts, they're still part of the fight). Tunable: 1.35x
-// per extra player was a starting guess (2p:1.35, 3p:1.7, 4p:2.05),
+// load time from however many characters have actually joined this
+// instance (players object, not just currently-connected sockets — a
+// fallen teammate still counts, they're still part of the fight). Tunable:
+// 1.35x per extra player was a starting guess (2p:1.35, 3p:1.7, 4p:2.05),
 // confirmed reasonable via a live 4-tab test (2026-08-24) — see
 // MASTER_DESIGN.md §9 if this needs retuning after real family play.
-function partyScale(){
-  const n = Math.max(1, Object.keys(players).length);
+function partyScale(inst){
+  const n = Math.max(1, Object.keys(inst.players).length);
   return 1 + (n - 1) * 0.35;
 }
 
@@ -190,51 +219,47 @@ function partyScale(){
 // one place. hpScale lets wave spawns get modestly tougher as a fight goes
 // on (server.js's tickWaveSpawns) without a separate code path; it
 // multiplies with partyScale() rather than replacing it.
-function spawnMonster(type, x, y, hpScale){
+function spawnMonster(inst, type, x, y, hpScale){
   const t = ENEMY_TYPES[type];
   const id = 'm' + (++monsterSeq);
-  const hp = Math.round(t.hp * (hpScale || 1) * partyScale());
-  monsters[id] = Object.assign({}, t, {
+  const hp = Math.round(t.hp * (hpScale || 1) * partyScale(inst));
+  inst.monsters[id] = Object.assign({}, t, {
     id, type, x, y, hp, maxHp: hp, cd: 0,
     slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
     stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0,
     chargeCd: t.chargeCd || 0, chargeState: null, chargeTimer: 0
   });
-  return monsters[id];
+  return inst.monsters[id];
 }
 
-// null while not in a wave room; {killsSoFar, killTarget, spawnTimer} while
-// in one — see js/data.js's `wave: true` rooms and tickWaveSpawns() below.
-let waveState = null;
-
-function loadRoom(idx){
-  roomIndex = idx;
-  branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
-  waveState = null;
-  if(idx === 1){ dungeonStartedAt = Date.now(); dungeonKillCount = 0; } // idx 0 is always the safe room — the real run starts on leaving it
-  const dungeon = currentDungeon();
+function loadRoom(inst, idx){
+  inst.roomIndex = idx;
+  inst.branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
+  inst.waveState = null;
+  if(idx === 1){ inst.dungeonStartedAt = Date.now(); inst.dungeonKillCount = 0; } // idx 0 is always the safe room — the real run starts on leaving it
+  const dungeon = currentDungeon(inst);
   const room = dungeon.rooms[idx];
-  for(const id in monsters) delete monsters[id];
-  loot = [];
+  for(const id in inst.monsters) delete inst.monsters[id];
+  inst.loot = [];
 
   if(room.wave){
     // Kill quota scales with party size too, not just monster HP — more
     // players also means more simultaneous kills happening, which HP
     // scaling alone doesn't touch.
-    const killTarget = Math.round(room.killTarget * partyScale());
-    waveState = { killsSoFar: 0, killTarget, spawnTimer: 2.5 };
-    for(let i = 0; i < 3; i++) spawnWaveMonster(room);
+    const killTarget = Math.round(room.killTarget * partyScale(inst));
+    inst.waveState = { killsSoFar: 0, killTarget, spawnTimer: 2.5 };
+    for(let i = 0; i < 3; i++) spawnWaveMonster(inst, room);
   } else {
     // A boss room may name a rare variant (js/data.js's rareVariant field)
     // rolled once here — "sometimes it's someone special" (§5/§6/§9). Every
     // boss room defined today has exactly one enemy entry, so overriding
     // every entry's type is equivalent to overriding "the boss."
     const rareRoll = room.boss && room.rareVariant && Math.random() < room.rareVariant.chance;
-    room.enemies.forEach(e=> spawnMonster(rareRoll ? room.rareVariant.type : e.type, e.x, e.y));
+    room.enemies.forEach(e=> spawnMonster(inst, rareRoll ? room.rareVariant.type : e.type, e.x, e.y));
   }
 
   const label = room.safe ? 'safe room' : room.boss ? 'BOSS' : room.wave ? 'wave chamber' : `chamber ${idx}`;
-  console.log(`[room] ${dungeon.name} — ${label} (${Object.keys(monsters).length} monsters)`);
+  console.log(`[room] ${dungeon.name} — ${label} (${Object.keys(inst.monsters).length} monsters)`);
 }
 
 // Picks a weighted-random type from a wave room's `pool` and spawns it at a
@@ -242,7 +267,7 @@ function loadRoom(idx){
 // tickWaveSpawns()'s ongoing trickle. hpScale grows with killsSoFar so
 // later spawns are modestly tougher, part of the kill-count-driven
 // escalation (§9, decided in MASTER_DESIGN.md's Open Decisions Log).
-function spawnWaveMonster(room){
+function spawnWaveMonster(inst, room){
   const totalWeight = room.pool.reduce((sum, e)=> sum + e.w, 0);
   let roll = Math.random() * totalWeight;
   let type = room.pool[0].type;
@@ -251,58 +276,63 @@ function spawnWaveMonster(room){
     roll -= e.w;
   }
   const p = room.spawnPoints[Math.floor(Math.random() * room.spawnPoints.length)];
-  const hpScale = 1 + Math.min(0.3, (waveState ? waveState.killsSoFar : 0) * 0.02);
-  spawnMonster(type, p.x, p.y, hpScale);
+  const hpScale = 1 + Math.min(0.3, (inst.waveState ? inst.waveState.killsSoFar : 0) * 0.02);
+  spawnMonster(inst, type, p.x, p.y, hpScale);
 }
 
 // Keeps a wave room's spawns trickling in while the kill quota hasn't been
 // hit yet — spawn interval shrinks as killsSoFar climbs, which is the
 // actual "escalation" (kill-count driven, not wall-clock — see §9).
-function tickWaveSpawns(dt){
+function tickWaveSpawns(inst, dt){
+  const waveState = inst.waveState;
   if(!waveState) return;
   if(waveState.killsSoFar >= waveState.killTarget) return;
   waveState.spawnTimer -= dt;
   if(waveState.spawnTimer > 0) return;
-  const room = currentRoom();
-  const aliveCount = Object.values(monsters).filter(m=>m.alive).length;
-  if(aliveCount < room.maxAlive) spawnWaveMonster(room);
+  const room = currentRoom(inst);
+  const aliveCount = Object.values(inst.monsters).filter(m=>m.alive).length;
+  if(aliveCount < room.maxAlive) spawnWaveMonster(inst, room);
   waveState.spawnTimer = Math.max(1.2, 3.2 - waveState.killsSoFar * 0.12);
 }
 
 // The safe room's exit — a fixed spot near the far wall, opposite the
 // entrance, that a player walks into to signal "let's go". Same shape as
 // the existing spawn-point/loot-pickup proximity checks, not a new
-// mechanic. See tickSafeRoom().
+// mechanic. See tickSafeRoom(). Fixed world coordinates, shared by every
+// instance — not per-instance state.
 const SAFE_EXIT_X = W - 100, SAFE_EXIT_Y = H / 2, SAFE_EXIT_RADIUS = 50;
 
-// Branching side chamber (currently only Sherwood Approach defines a
-// `sideChamber` — see js/data.js). Same trigger-zone shape as the safe
-// room's exit, just three of them: a fork (main path vs. the harder,
-// better-loot detour) and a single return spot once the detour's cleared.
-// null | 'awaiting_choice' | 'in_side_chamber' | 'side_cleared_awaiting_return'
-let branchState = null;
+// Branching side chamber (js/data.js's `sideChamber` on individual branch
+// rooms). Same trigger-zone shape as the safe room's exit, just three of
+// them: a fork (main path vs. the harder, better-loot detour) and a single
+// return spot once the detour's cleared. Fixed world coordinates, shared
+// by every instance.
+// branchState: null | 'awaiting_choice' | 'in_side_chamber' | 'side_cleared_awaiting_return'
 const BRANCH_MAIN_EXIT = { x: W - 100, y: H / 2 - 90, r: 45 };
 const BRANCH_SIDE_EXIT = { x: W - 100, y: H / 2 + 90, r: 45 };
 const BRANCH_RETURN_EXIT = { x: W - 100, y: H / 2, r: 45 };
 
-function someoneAt(spot){
-  return Object.values(players).some(p => !p.dead && Math.hypot(p.x - spot.x, p.y - spot.y) < spot.r);
+function someoneAt(inst, spot){
+  return Object.values(inst.players).some(p => !p.dead && Math.hypot(p.x - spot.x, p.y - spot.y) < spot.r);
 }
 
-function advanceToNextRoom(){
-  if(roomIndex + 1 < currentDungeon().rooms.length) loadRoom(roomIndex + 1);
+function advanceToNextRoom(inst){
+  if(inst.roomIndex + 1 < currentDungeon(inst).rooms.length) loadRoom(inst, inst.roomIndex + 1);
 }
-
-loadRoom(0);
 
 // ---------- CONNECTIONS ----------
 const clients = new Map();          // playerId -> ws (the live socket, if any, for that character)
 const reconnectTimers = new Map();  // playerId -> pending-removal timeout, only set while disconnected
 
-function familyFullyConnected(){
+// All 4 family accounts present *in this specific instance* and connected
+// — not just "connected somewhere on the server." With multiple
+// simultaneous instances, a family member playing a different dungeon
+// must not count toward unlocking this one.
+function familyFullyConnected(inst){
   return FAMILY_IDS.every(id => {
+    const p = inst.players[id];
     const ws = clients.get(id);
-    return ws && ws.readyState === 1;
+    return !!p && !!ws && ws.readyState === 1;
   });
 }
 
@@ -406,11 +436,15 @@ wss.on('connection', (ws, req) => {
       clearTimeout(reconnectTimers.get(id));
       reconnectTimers.delete(id);
     }
-    const resuming = !!players[id];
+
+    const instIdx = playerInstance.get(id);
+    const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+    const resuming = !!(inst && inst.players[id]);
 
     ws.send(JSON.stringify({
-      type: 'welcome', id, roomId: currentRoomId(), resuming,
-      characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest
+      type: 'welcome', id, roomId: resuming ? currentRoomId(inst) : null, resuming,
+      characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest,
+      dungeonsCleared: db.getFamilyState().dungeonsCleared
     }));
     console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
   }
@@ -446,12 +480,13 @@ wss.on('connection', (ws, req) => {
       // to reset this closure's own `id` back to null — the whole point is
       // this same socket can go through 'login' again afterward without
       // reconnecting, exactly like a fresh, never-logged-in connection.
-      const wasSolo = clients.size === 1;
-      delete players[id];
+      const instIdx = playerInstance.get(id);
+      const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+      if(inst) delete inst.players[id]; // instance cleanup (if now empty) happens in the tick loop, not here
+      playerInstance.delete(id);
       if(reconnectTimers.has(id)){ clearTimeout(reconnectTimers.get(id)); reconnectTimers.delete(id); }
       clients.delete(id);
-      console.log(`[leave] ${id} left the dungeon${wasSolo ? ' (was solo — resetting to the safe room)' : ''}`);
-      if(wasSolo) loadRoom(0); // nothing left to disrupt, and no reason to leave the world parked mid-fight with nobody around
+      console.log(`[leave] ${id} left the dungeon`);
       ws.send(JSON.stringify({ type: 'leftDungeon' }));
       id = null;
       return;
@@ -464,12 +499,15 @@ wss.on('connection', (ws, req) => {
     if(id === null) return; // never actually logged in — nothing was ever registered for this socket
     if(clients.get(id) !== ws) return; // a newer connection already replaced this one; nothing to do
     clients.delete(id);
-    const p = players[id];
+    const instIdx = playerInstance.get(id);
+    const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+    const p = inst ? inst.players[id] : undefined;
     if(!p){ console.log(`[disconnect] ${id}`); return; }
     db.savePlayerStats(p); // write-on-disconnect
     p.keys.up = p.keys.down = p.keys.left = p.keys.right = false; // stop it from walking into a wall forever
     reconnectTimers.set(id, setTimeout(()=>{
-      delete players[id];
+      if(inst) delete inst.players[id];
+      playerInstance.delete(id);
       reconnectTimers.delete(id);
       console.log(`[expired] ${id} removed after ${RECONNECT_GRACE_MS / 1000}s with no reconnect`);
     }, RECONNECT_GRACE_MS));
@@ -501,19 +539,34 @@ function handleMessage(id, msg){
     return;
   }
 
+  if(msg.type === 'returnToDungeonSelect'){
+    const instIdx = playerInstance.get(id);
+    const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+    if(inst) delete inst.players[id];
+    playerInstance.delete(id);
+    const ws = clients.get(id);
+    if(ws) ws.send(JSON.stringify({ type: 'leftInstance', dungeonsCleared: db.getFamilyState().dungeonsCleared }));
+    return;
+  }
+
   if(msg.type === 'join'){
     // Refuse to clobber a live entry, dead or alive — a dead one now needs
     // reviving (or a full wipe) rather than a fresh join; see REVIVE/WIPE
-    // at the top of this file. Only ever runs against an id with no entry
-    // at all: a brand new session, or right after a revive/wipe reset.
-    if(players[id]) return;
+    // at the top of this file. Only ever runs against an account with no
+    // active instance at all: a brand new session, or right after
+    // returnToDungeonSelect/leaveDungeon.
+    if(playerInstance.has(id)) return;
     const character = db.getCharacter(id, msg.characterId);
     if(!character) return; // unknown/stale characterId — client's roster is out of sync, ignore
+    const dungeonIndex = Number(msg.dungeonIndex);
+    if(!Number.isInteger(dungeonIndex) || dungeonIndex < 0 || dungeonIndex >= DUNGEONS.length) return;
+
+    const inst = getOrCreateInstance(dungeonIndex);
     const classKey = CLASSES[character.classKey] ? character.classKey : 'squire';
     const c = CLASSES[classKey];
-    const spawn = pickSpawnPoint();
+    const spawn = pickSpawnPoint(inst);
     const name = ACCOUNTS[id].name;
-    players[id] = {
+    inst.players[id] = {
       id, classKey, name, characterId: character.id, gender: character.gender,
       x: spawn.x, y: spawn.y,
       hp: c.hp, maxHp: c.hp,
@@ -534,12 +587,15 @@ function handleMessage(id, msg){
       // ever", not per-character session stats; see server/db.js).
       ...db.loadPlayerStats(id)
     };
-    db.savePlayerStats(players[id]); // persist the resolved name even if stats themselves are unchanged
-    console.log(`[join] ${id} as ${classKey} (character ${character.id})`);
+    playerInstance.set(id, dungeonIndex);
+    db.savePlayerStats(inst.players[id]); // persist the resolved name even if stats themselves are unchanged
+    console.log(`[join] ${id} as ${classKey} into ${DUNGEONS[dungeonIndex].name} (character ${character.id})`);
     return;
   }
 
-  const player = players[id];
+  const instIdx = playerInstance.get(id);
+  const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+  const player = inst ? inst.players[id] : undefined;
   if(!player || player.dead) return;
   if(msg.type !== 'input') return;
 
@@ -555,15 +611,15 @@ function handleMessage(id, msg){
   player.keys.left = !!k.left;
   player.keys.right = !!k.right;
 
-  if(msg.action === 'special1') doSpecial(player, 1);
-  else if(msg.action === 'special2') doSpecial(player, 2);
+  if(msg.action === 'special1') doSpecial(inst, player, 1);
+  else if(msg.action === 'special2') doSpecial(inst, player, 2);
 }
 
 // ---------- COMBAT ----------
-function nearestMonster(player){
+function nearestMonster(inst, player){
   let best = null, bd = Infinity;
-  for(const id in monsters){
-    const mon = monsters[id];
+  for(const id in inst.monsters){
+    const mon = inst.monsters[id];
     if(!mon.alive) continue;
     const d = Math.hypot(mon.x - player.x, mon.y - player.y);
     if(d < bd){ bd = d; best = mon; }
@@ -571,9 +627,9 @@ function nearestMonster(player){
   return best;
 }
 
-function forEachAliveMonster(fn){
-  for(const id in monsters){
-    if(monsters[id].alive) fn(monsters[id]);
+function forEachAliveMonster(inst, fn){
+  for(const id in inst.monsters){
+    if(inst.monsters[id].alive) fn(inst.monsters[id]);
   }
 }
 
@@ -582,14 +638,14 @@ function forEachAliveMonster(fn){
 // stays locked while it's alive, rather than re-picking "nearest" on every
 // single swing, and only reacquires once that target's gone. Specials stay
 // fully manual (doSpecial, driven by client input), unchanged.
-function tickAutoAttack(){
-  for(const id in players){
-    const player = players[id];
+function tickAutoAttack(inst){
+  for(const id in inst.players){
+    const player = inst.players[id];
     if(player.dead || player.cds.attack > 0) continue;
 
-    let target = player.targetId ? monsters[player.targetId] : null;
+    let target = player.targetId ? inst.monsters[player.targetId] : null;
     if(!target || !target.alive){
-      target = nearestMonster(player);
+      target = nearestMonster(inst, player);
       player.targetId = target ? target.id : null;
     }
     if(!target) continue;
@@ -600,11 +656,11 @@ function tickAutoAttack(){
     if(!inRange) continue;
     if(a.cost && player.mana < a.cost) continue;
 
-    doAttack(player, target);
+    doAttack(inst, player, target);
   }
 }
 
-function doAttack(player, target){
+function doAttack(inst, player, target){
   const c = CLASSES[player.classKey];
   const a = c.attack;
   player.cds.attack = a.cd;
@@ -613,7 +669,7 @@ function doAttack(player, target){
   if(a.projectile){
     let ang = 0;
     if(target) ang = Math.atan2(target.y - player.y, target.x - player.x);
-    projectiles.push({
+    inst.projectiles.push({
       id: 'pr' + (++projSeq), ownerId: player.id,
       x: player.x, y: player.y,
       vx: Math.cos(ang) * 420, vy: Math.sin(ang) * 420,
@@ -624,14 +680,14 @@ function doAttack(player, target){
     // target — that's how this already felt when manually mashing the old
     // attack button, and target-lock mainly matters for ranged aim/UI here.
     const buffed = a.dmg * player.buffMult;
-    forEachAliveMonster(mon=>{
+    forEachAliveMonster(inst, mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < a.range + mon.radius) hitMonster(mon, buffed, player.id);
+      if(d < a.range + mon.radius) hitMonster(inst, mon, buffed, player.id);
     });
   }
 }
 
-function doSpecial(player, slot){
+function doSpecial(inst, player, slot){
   const c = CLASSES[player.classKey];
   const key = 'special' + slot;
   const sp = c[key];
@@ -643,28 +699,28 @@ function doSpecial(player, slot){
   if(sp.cost) player.mana -= sp.cost;
 
   if(sp.name === "Shield Bash"){
-    forEachAliveMonster(mon=>{
+    forEachAliveMonster(inst, mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < sp.radius){ hitMonster(mon, sp.dmg, player.id); mon.stunTimer = sp.stun; }
+      if(d < sp.radius){ hitMonster(inst, mon, sp.dmg, player.id); mon.stunTimer = sp.stun; }
     });
   } else if(sp.name === "Parry"){
     player.blockActive = true; player.blockTimer = sp.dur;
   } else if(sp.name === "Taunt"){
-    forEachAliveMonster(mon=>{
+    forEachAliveMonster(inst, mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
       if(d < sp.radius){ mon.tauntTimer = sp.dur; mon.tauntTarget = player.id; }
     });
   } else if(sp.name === "Arcane Nova"){
-    forEachAliveMonster(mon=>{
+    forEachAliveMonster(inst, mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
-      if(d < sp.radius) hitMonster(mon, sp.dmg, player.id);
+      if(d < sp.radius) hitMonster(inst, mon, sp.dmg, player.id);
     });
   } else if(sp.name === "Healing Light"){
     player.hp = Math.min(player.maxHp, player.hp + sp.heal);
   } else if(sp.name === "Blessing"){
     // Multiplayer party heal + buff, matching the Cleric's "watch the whole party" design.
-    for(const id in players){
-      const p = players[id];
+    for(const id in inst.players){
+      const p = inst.players[id];
       if(p.dead) continue;
       p.hp = Math.min(p.maxHp, p.hp + sp.heal);
       p.buffMult = sp.buff; p.buffTimer = sp.buffDur;
@@ -674,47 +730,47 @@ function doSpecial(player, slot){
     // boss indefinitely would trivialize the fight). Breaks early if that
     // monster takes any damage (see hitMonster), same as classic MMO mez —
     // discourages AoEing a target you meant to keep locked down.
-    const target = nearestMonster(player);
+    const target = nearestMonster(inst, player);
     if(target && !target.boss && Math.hypot(target.x - player.x, target.y - player.y) < sp.range){
       target.mesmerizeTimer = sp.dur;
     }
   } else if(sp.name === "Group Haste"){
-    for(const id in players){
-      const p = players[id];
+    for(const id in inst.players){
+      const p = inst.players[id];
       if(p.dead) continue;
       p.hasteMult = sp.mult; p.hasteTimer = sp.dur;
     }
   }
 }
 
-function hitMonster(mon, dmg, killerId){
+function hitMonster(inst, mon, dmg, killerId){
   mon.mesmerizeTimer = 0; // any damage breaks Mesmerize
   mon.hp -= dmg;
   if(mon.hp <= 0 && mon.alive){
     mon.alive = false;
-    dropLoot(mon);
-    const killer = players[killerId];
+    dropLoot(inst, mon);
+    const killer = inst.players[killerId];
     if(killer){ killer.totalKills++; db.savePlayerStats(killer); }
-    dungeonKillCount++; // feeds the post-dungeon summary screen, see onBossDefeated()
-    if(waveState) waveState.killsSoFar++; // drives tickWaveSpawns()'s escalation
-    if(mon.boss) onBossDefeated(mon);
+    inst.dungeonKillCount++; // feeds the post-dungeon summary screen, see onBossDefeated()
+    if(inst.waveState) inst.waveState.killsSoFar++; // drives tickWaveSpawns()'s escalation
+    if(mon.boss) onBossDefeated(inst, mon);
   }
 }
 
-function dropLoot(mon){
+function dropLoot(inst, mon){
   // Guaranteed drop inside a side chamber — that's the whole point of the
   // harder detour (see js/data.js's sideChamber.warningText).
-  if(mon.boss || branchState === 'in_side_chamber' || Math.random() < 0.35){
-    loot.push({ id: 'l' + (++lootSeq), x: mon.x, y: mon.y, taken: false });
+  if(mon.boss || inst.branchState === 'in_side_chamber' || Math.random() < 0.35){
+    inst.loot.push({ id: 'l' + (++lootSeq), x: mon.x, y: mon.y, taken: false });
   }
   // Rare boss variant guarantees a second drop on top of the boss-kill
   // guarantee above — see js/data.js's blackKnightRare/rareVariant.
   if(mon.type === 'blackKnightRare'){
-    loot.push({ id: 'l' + (++lootSeq), x: mon.x + 20, y: mon.y + 20, taken: false });
+    inst.loot.push({ id: 'l' + (++lootSeq), x: mon.x + 20, y: mon.y + 20, taken: false });
   }
 }
 
-function damagePlayer(player, dmg){
+function damagePlayer(inst, player, dmg){
   if(player.spawnProtection > 0) return;
   const gearMult = GEAR_TIERS[player.gearTier].mult;
   const reduced = dmg / (0.6 + gearMult * 0.4);
@@ -723,40 +779,50 @@ function damagePlayer(player, dmg){
     player.dead = true; player.hp = 0;
     player.totalDeaths++;
     db.savePlayerStats(player);
-    console.log(`[death] ${player.id} fell in ${currentDungeon().name}`);
-    checkForWipe();
+    console.log(`[death] ${player.id} fell in ${currentDungeon(inst).name}`);
+    checkForWipe(inst);
   }
 }
 
 // Called after every death — if nobody currently connected is left alive
 // to revive anyone, the party can't recover on its own. Resets the
-// dungeon back to its own safe room (not a character/account reset) once
+// instance back to its own safe room (not a character/account reset) once
 // the moment has had a beat to land. Harmless if it fires more than once
 // for the same wipe (e.g. two players die in the same tick) — resetting
 // already-alive/full-HP players and reloading room 0 again is a no-op.
-function checkForWipe(){
-  const ids = Object.keys(players);
+function checkForWipe(inst){
+  const ids = Object.keys(inst.players);
   if(ids.length === 0) return;
-  const anyoneAliveAndConnected = ids.some(id => !players[id].dead && clients.has(id));
+  const anyoneAliveAndConnected = ids.some(id => !inst.players[id].dead && clients.has(id));
   if(anyoneAliveAndConnected) return;
-  console.log(`[wipe] the party has fallen in ${currentDungeon().name} — resetting to the safe room`);
+  console.log(`[wipe] the party has fallen in ${currentDungeon(inst).name} — resetting to the safe room`);
   setTimeout(()=>{
-    for(const id in players){
-      const p = players[id];
+    for(const id in inst.players){
+      const p = inst.players[id];
       p.dead = false;
       p.hp = p.maxHp;
       if(p.maxMana) p.mana = p.maxMana;
       p.reviveProgress = 0;
       p.spawnProtection = SPAWN_GRACE;
     }
-    loadRoom(0);
+    loadRoom(inst, 0);
   }, 2000);
 }
 
-function onBossDefeated(mon){
-  const d = currentDungeon();
-  const elapsedSeconds = (Date.now() - dungeonStartedAt) / 1000;
-  db.recordDungeonClear(d.name, elapsedSeconds); // only overwrites if this beats the existing record
+function onBossDefeated(inst, mon){
+  const d = currentDungeon(inst);
+  const elapsedSeconds = (Date.now() - inst.dungeonStartedAt) / 1000;
+
+  // Campaign victory is a one-shot computed event, not stored state: was
+  // this dungeon NOT already in the family's cleared list before this
+  // exact kill, and does clearing it now complete all of them? Checked
+  // before/after recordDungeonClear so it only fires once, on the actual
+  // completing clear — not on every later replay of whichever dungeon
+  // happened to be last.
+  const wasAlreadyCleared = db.getFamilyState().dungeonsCleared.includes(d.name);
+  db.recordDungeonClear(d.name, elapsedSeconds); // marks this dungeon cleared + only overwrites the best time if this beats it
+  const nowCleared = db.getFamilyState().dungeonsCleared;
+  const campaignVictory = !wasAlreadyCleared && nowCleared.length === DUNGEONS.length;
 
   // Currency-on-clear (first thing that actually calls addFamilyCurrency —
   // see MASTER_DESIGN.md §11/§12 Phase 5, which has no spend destination
@@ -768,71 +834,63 @@ function onBossDefeated(mon){
   db.addFamilyCurrency(reward);
 
   // A dedicated dungeon-complete screen (client-side, see js/main.js)
-  // replaced the old timed banner — that only had ~3.5s to be read before
-  // auto-advancing underneath it; this is dismissed by the player
-  // whenever they're ready, so there's no rush to make it readable in
-  // time. dungeonKillCount resets in loadRoom() whenever a fresh dungeon
-  // run actually starts (leaving its safe room).
-  dungeonSummary = {
+  // shows this until the player dismisses it and returns to dungeon-select
+  // (returnToDungeonSelect) — there's no more fixed "next dungeon" to
+  // auto-advance into now that any dungeon can be picked.
+  inst.dungeonSummary = {
     dungeonName: d.name,
     flavorText: t.defeatText || d.bossDefeatText,
     rare: !!t.displayName,
     currencyEarned: reward,
     familyCurrencyTotal: db.getFamilyState().currency,
     elapsedSeconds: Math.round(elapsedSeconds),
-    kills: dungeonKillCount
+    kills: inst.dungeonKillCount,
+    campaignVictory
   };
-  console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s — +${reward} currency`);
+  console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s — +${reward} currency${campaignVictory ? ' — CAMPAIGN VICTORY' : ''}`);
 
-  advancing = true;
+  inst.advancing = true;
   setTimeout(()=>{
-    advancing = false;
-    dungeonSummary = null;
-    if(dungeonIndex + 1 >= DUNGEONS.length){
-      victory = true;
-      console.log('[victory] Camelot is saved');
-      return;
-    }
-    dungeonIndex++;
-    for(const id in players){
-      const p = players[id];
-      p.hp = p.maxHp;
-      if(p.maxMana) p.mana = p.maxMana;
-    }
-    loadRoom(0); // the new dungeon's safe room — the party gate (see tickSafeRoom) lives at its exit, not here
-  }, 2000); // just a short beat now — the summary screen, not this pause, is what gives time to read
+    inst.advancing = false;
+    inst.dungeonSummary = null;
+  }, 2000); // just a short beat — the summary screen, not this pause, is what gives time to read
 }
 
 // The safe room has no monsters to clear, so it needs its own advance
 // trigger: a player walking into the exit spot. Sherwood Approach's safe
 // room (dungeonIndex 0) lets anyone currently here through — no family
-// requirement on the first dungeon. Every dungeon beyond it also needs
-// all 4 family accounts online before the exit actually works; standing
-// at it otherwise just sets `waitingForFamily` so clients know why nothing
-// happened yet, and it keeps re-checking every tick without needing a
-// separate retry timer.
-function tickSafeRoom(){
-  if(!currentRoom().safe){ waitingForFamily = false; return; }
-  const someoneAtExit = Object.values(players).some(p =>
+// requirement, ever. Any other dungeon the family hasn't cleared yet also
+// needs all 4 family accounts present in this instance and connected
+// before the exit does anything; standing at it otherwise just sets
+// `waitingForFamily` so clients know why nothing happened yet, and it
+// keeps re-checking every tick without needing a separate retry timer.
+// Once a dungeon's been cleared once, this gate never applies to it again.
+function tickSafeRoom(inst){
+  const room = currentRoom(inst);
+  if(!room.safe){ inst.waitingForFamily = false; return; }
+  const someoneAtExit = Object.values(inst.players).some(p =>
     !p.dead && Math.hypot(p.x - SAFE_EXIT_X, p.y - SAFE_EXIT_Y) < SAFE_EXIT_RADIUS);
-  if(!someoneAtExit){ waitingForFamily = false; return; }
-  if(dungeonIndex > 0 && !familyFullyConnected()){
-    waitingForFamily = true;
+  if(!someoneAtExit){ inst.waitingForFamily = false; return; }
+
+  const dungeon = currentDungeon(inst);
+  const alreadyCleared = db.getFamilyState().dungeonsCleared.includes(dungeon.name);
+  if(inst.dungeonIndex > 0 && !alreadyCleared && !familyFullyConnected(inst)){
+    inst.waitingForFamily = true;
     return;
   }
-  waitingForFamily = false;
-  loadRoom(1);
+  inst.waitingForFamily = false;
+  loadRoom(inst, 1);
 }
 
 // Same shape as loadRoom(), but for the optional side chamber — doesn't
 // touch roomIndex, so the main path's position is preserved for the trip
 // back (see tickBranch()'s 'side_cleared_awaiting_return' case).
-function loadSideChamber(){
-  for(const id in monsters) delete monsters[id];
-  loot = [];
-  const sc = currentRoom().sideChamber;
-  sc.enemies.forEach(e=> spawnMonster(e.type, e.x, e.y));
-  console.log(`[room] ${currentDungeon().name} — side chamber: ${sc.name} (${sc.enemies.length} monsters)`);
+function loadSideChamber(inst){
+  for(const id in inst.monsters) delete inst.monsters[id];
+  inst.loot = [];
+  const sc = currentRoom(inst).sideChamber;
+  sc.enemies.forEach(e=> spawnMonster(inst, e.type, e.x, e.y));
+  console.log(`[room] ${currentDungeon(inst).name} — side chamber: ${sc.name} (${sc.enemies.length} monsters)`);
 }
 
 // Drives the fork once a `branch: true` room is cleared (see tickMonsters)
@@ -840,19 +898,19 @@ function loadSideChamber(){
 // exactly as any other room would, the side one detours into the harder,
 // guaranteed-loot chamber. Clearing that chamber opens a single return
 // gate leading to the same next room the main path would have reached.
-function tickBranch(){
-  if(branchState === 'awaiting_choice'){
-    if(someoneAt(BRANCH_MAIN_EXIT)){
-      branchState = null;
-      advanceToNextRoom();
-    } else if(someoneAt(BRANCH_SIDE_EXIT)){
-      branchState = 'in_side_chamber';
-      loadSideChamber();
+function tickBranch(inst){
+  if(inst.branchState === 'awaiting_choice'){
+    if(someoneAt(inst, BRANCH_MAIN_EXIT)){
+      inst.branchState = null;
+      advanceToNextRoom(inst);
+    } else if(someoneAt(inst, BRANCH_SIDE_EXIT)){
+      inst.branchState = 'in_side_chamber';
+      loadSideChamber(inst);
     }
-  } else if(branchState === 'side_cleared_awaiting_return'){
-    if(someoneAt(BRANCH_RETURN_EXIT)){
-      branchState = null;
-      advanceToNextRoom();
+  } else if(inst.branchState === 'side_cleared_awaiting_return'){
+    if(someoneAt(inst, BRANCH_RETURN_EXIT)){
+      inst.branchState = null;
+      advanceToNextRoom(inst);
     }
   }
 }
@@ -863,11 +921,11 @@ function tickBranch(){
 // than decaying, so a reviver has to actually commit to standing still
 // (often next to whatever just killed the fallen player) rather than
 // poke in and out safely.
-function tickRevive(dt){
-  for(const id in players){
-    const p = players[id];
+function tickRevive(inst, dt){
+  for(const id in inst.players){
+    const p = inst.players[id];
     if(!p.dead) continue;
-    const reviver = Object.values(players).find(o =>
+    const reviver = Object.values(inst.players).find(o =>
       o.id !== p.id && !o.dead && clients.has(o.id) && Math.hypot(o.x - p.x, o.y - p.y) < REVIVE_RANGE);
     if(!reviver){
       p.reviveProgress = 0;
@@ -879,20 +937,20 @@ function tickRevive(dt){
       p.hp = p.maxHp * REVIVE_HP_FRACTION;
       p.spawnProtection = SPAWN_GRACE;
       p.reviveProgress = 0;
-      console.log(`[revive] ${p.id} revived by ${reviver.id} in ${currentDungeon().name}`);
+      console.log(`[revive] ${p.id} revived by ${reviver.id} in ${currentDungeon(inst).name}`);
     }
   }
 }
 
 // ---------- MONSTER AI ----------
-function pickTarget(mon){
+function pickTarget(inst, mon){
   if(mon.tauntTimer > 0 && mon.tauntTarget){
-    const t = players[mon.tauntTarget];
+    const t = inst.players[mon.tauntTarget];
     if(t && !t.dead) return t;
   }
   let best = null, bd = Infinity;
-  for(const id in players){
-    const p = players[id];
+  for(const id in inst.players){
+    const p = inst.players[id];
     if(p.dead) continue;
     const d = Math.hypot(p.x - mon.x, p.y - mon.y);
     if(d < bd){ bd = d; best = p; }
@@ -900,17 +958,17 @@ function pickTarget(mon){
   return best;
 }
 
-function tickMonsters(dt){
+function tickMonsters(inst, dt){
   let allDead = true;
-  for(const id in monsters){
-    const mon = monsters[id];
+  for(const id in inst.monsters){
+    const mon = inst.monsters[id];
     if(!mon.alive) continue;
     allDead = false;
     if(mon.stunTimer > 0){ mon.stunTimer -= dt; continue; }
     if(mon.mesmerizeTimer > 0){ mon.mesmerizeTimer -= dt; continue; }
     if(mon.tauntTimer > 0) mon.tauntTimer -= dt;
 
-    const target = pickTarget(mon);
+    const target = pickTarget(inst, mon);
 
     // Slam AoE — gated on "has slam fields" rather than "is a boss", so the
     // Bandit Captain mini-boss (js/data.js) gets the same telegraphed-AoE
@@ -924,14 +982,14 @@ function tickMonsters(dt){
         if(mon.slamTimer <= 0){
           mon.slamState = null;
           // Slam is an AoE that hits every nearby player, not just one.
-          for(const pid in players){
-            const p = players[pid];
+          for(const pid in inst.players){
+            const p = inst.players[pid];
             if(p.dead) continue;
             const d = Math.hypot(p.x - mon.x, p.y - mon.y);
             if(d < mon.slamRadius){
               const pc = CLASSES[p.classKey];
               const canBlock = p.blockActive && pc.special1 && pc.special1.block;
-              damagePlayer(p, canBlock ? mon.slamDmg * (1 - pc.special1.block) : mon.slamDmg);
+              damagePlayer(inst, p, canBlock ? mon.slamDmg * (1 - pc.special1.block) : mon.slamDmg);
             }
           }
           mon.slamCd = 4.5;
@@ -958,12 +1016,12 @@ function tickMonsters(dt){
         mon.y += mon.chargeDirY * mon.chargeSpeed * dt;
         mon.x = Math.max(mon.radius, Math.min(W - mon.radius, mon.x));
         mon.y = Math.max(mon.radius + 60, Math.min(H - mon.radius, mon.y));
-        for(const pid in players){
-          const p = players[pid];
+        for(const pid in inst.players){
+          const p = inst.players[pid];
           if(p.dead || mon.chargeHit[pid]) continue;
           if(Math.hypot(p.x - mon.x, p.y - mon.y) < mon.radius + p.radius + 10){
             mon.chargeHit[pid] = true;
-            damagePlayer(p, mon.chargeDmg);
+            damagePlayer(inst, p, mon.chargeDmg);
           }
         }
         mon.chargeTimer -= dt;
@@ -972,7 +1030,7 @@ function tickMonsters(dt){
           mon.chargeCd = ENEMY_TYPES[mon.type].chargeCd;
         }
       } else if(mon.chargeCd <= 0){
-        const tgt = pickTarget(mon);
+        const tgt = pickTarget(inst, mon);
         const ang = tgt ? Math.atan2(tgt.y - mon.y, tgt.x - mon.x) : 0;
         mon.chargeDirX = Math.cos(ang); mon.chargeDirY = Math.sin(ang);
         mon.chargeState = 'telegraph'; mon.chargeTimer = mon.chargeTelegraph;
@@ -989,7 +1047,7 @@ function tickMonsters(dt){
       } else {
         mon.cd -= dt;
         if(mon.cd <= 0){
-          damagePlayer(target, mon.dmg);
+          damagePlayer(inst, target, mon.dmg);
           mon.cd = ENEMY_TYPES[mon.type].cd;
         }
       }
@@ -1000,18 +1058,19 @@ function tickMonsters(dt){
   // the board is momentarily empty — tickWaveSpawns() keeps refilling it
   // until the kill quota is hit. Every other room keeps the original
   // all-dead-means-cleared behavior.
+  const waveState = inst.waveState;
   const waveStillGoing = waveState && waveState.killsSoFar < waveState.killTarget;
-  if(allDead && Object.keys(monsters).length > 0 && !advancing && !waveStillGoing){
-    if(branchState === 'in_side_chamber'){
-      branchState = 'side_cleared_awaiting_return'; // wait for a player to walk to the return gate — see tickBranch()
-    } else if(branchState === null && !currentRoom().boss){
-      if(currentRoom().branch){
-        branchState = 'awaiting_choice'; // fork: don't auto-advance, wait for a gate choice — see tickBranch()
+  if(allDead && Object.keys(inst.monsters).length > 0 && !inst.advancing && !waveStillGoing){
+    if(inst.branchState === 'in_side_chamber'){
+      inst.branchState = 'side_cleared_awaiting_return'; // wait for a player to walk to the return gate — see tickBranch()
+    } else if(inst.branchState === null && !currentRoom(inst).boss){
+      if(currentRoom(inst).branch){
+        inst.branchState = 'awaiting_choice'; // fork: don't auto-advance, wait for a gate choice — see tickBranch()
       } else {
-        advancing = true;
+        inst.advancing = true;
         setTimeout(()=>{
-          advancing = false;
-          advanceToNextRoom();
+          inst.advancing = false;
+          advanceToNextRoom(inst);
         }, 1400);
       }
     }
@@ -1030,9 +1089,9 @@ function movementVector(keys){
   return { mx, my };
 }
 
-function tickPlayers(dt){
-  for(const id in players){
-    const p = players[id];
+function tickPlayers(inst, dt){
+  for(const id in inst.players){
+    const p = inst.players[id];
     if(p.dead) continue;
 
     const { mx, my } = movementVector(p.keys);
@@ -1053,22 +1112,22 @@ function tickPlayers(dt){
   }
 }
 
-function tickProjectiles(dt){
-  projectiles.forEach(pr=>{
+function tickProjectiles(inst, dt){
+  inst.projectiles.forEach(pr=>{
     pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
-    forEachAliveMonster(mon=>{
+    forEachAliveMonster(inst, mon=>{
       if(pr.dead) return;
-      if(Math.hypot(mon.x - pr.x, mon.y - pr.y) < mon.radius + pr.r){ hitMonster(mon, pr.dmg, pr.ownerId); pr.dead = true; }
+      if(Math.hypot(mon.x - pr.x, mon.y - pr.y) < mon.radius + pr.r){ hitMonster(inst, mon, pr.dmg, pr.ownerId); pr.dead = true; }
     });
   });
-  projectiles = projectiles.filter(pr => pr.life > 0 && !pr.dead);
+  inst.projectiles = inst.projectiles.filter(pr => pr.life > 0 && !pr.dead);
 }
 
-function tickLoot(){
-  loot.forEach(l=>{
+function tickLoot(inst){
+  inst.loot.forEach(l=>{
     if(l.taken) return;
-    for(const id in players){
-      const p = players[id];
+    for(const id in inst.players){
+      const p = inst.players[id];
       if(p.dead) continue;
       if(Math.hypot(l.x - p.x, l.y - p.y) < p.radius + 16){
         l.taken = true;
@@ -1077,41 +1136,43 @@ function tickLoot(){
       }
     }
   });
-  loot = loot.filter(l => !l.taken);
+  inst.loot = inst.loot.filter(l => !l.taken);
 }
 
 // ---------- TICK LOOP ----------
 // {type:"state", players:[...], monsters:[...], projectiles:[...], tick:N}
-// Arrays, each element carrying its own `id` — plus a few extra fields (roomId,
-// dungeonName, boss, victory, loot) the client needs for HUD/progression that
-// don't fit the three core entity lists.
-function broadcastState(){
+// Arrays, each element carrying its own `id` — plus a few extra fields
+// (roomId, dungeonName, boss, etc) the client needs for HUD/progression
+// that don't fit the three core entity lists. Sent only to clients
+// currently inside this instance, not broadcast globally.
+function broadcastInstanceState(inst){
   const payload = JSON.stringify({
     type: 'state',
     tick: tickCount,
-    roomId: currentRoomId(),
-    dungeonName: currentDungeon().name,
-    boss: !!currentRoom().boss,
-    safe: !!currentRoom().safe,
+    roomId: currentRoomId(inst),
+    dungeonName: currentDungeon(inst).name,
+    boss: !!currentRoom(inst).boss,
+    safe: !!currentRoom(inst).safe,
     safeExit: { x: SAFE_EXIT_X, y: SAFE_EXIT_Y, r: SAFE_EXIT_RADIUS },
-    branch: branchState ? {
-      state: branchState,
+    branch: inst.branchState ? {
+      state: inst.branchState,
       mainExit: BRANCH_MAIN_EXIT,
       sideExit: BRANCH_SIDE_EXIT,
       returnExit: BRANCH_RETURN_EXIT
     } : null,
-    wave: waveState ? { killsSoFar: waveState.killsSoFar, killTarget: waveState.killTarget } : null,
+    wave: inst.waveState ? { killsSoFar: inst.waveState.killsSoFar, killTarget: inst.waveState.killTarget } : null,
     family: db.getFamilyState(),
-    dungeonSummary,
-    victory,
-    waitingForFamily,
-    players: Object.values(players),
-    monsters: Object.values(monsters),
-    projectiles,
-    loot
+    dungeonsCleared: db.getFamilyState().dungeonsCleared,
+    dungeonSummary: inst.dungeonSummary,
+    waitingForFamily: inst.waitingForFamily,
+    players: Object.values(inst.players),
+    monsters: Object.values(inst.monsters),
+    projectiles: inst.projectiles,
+    loot: inst.loot
   });
-  for(const ws of clients.values()){
-    if(ws.readyState === 1) ws.send(payload);
+  for(const pid in inst.players){
+    const ws = clients.get(pid);
+    if(ws && ws.readyState === 1) ws.send(payload);
   }
 }
 
@@ -1123,18 +1184,28 @@ setInterval(()=>{
   const dt = Math.min(0.1, (now - lastTick) / 1000);
   lastTick = now;
 
-  if(!victory){
-    tickPlayers(dt);
-    tickAutoAttack();
-    tickMonsters(dt);
-    tickWaveSpawns(dt);
-    tickProjectiles(dt);
-    tickLoot();
-    tickSafeRoom();
-    tickBranch();
-    tickRevive(dt);
+  for(const inst of instances.values()){
+    tickPlayers(inst, dt);
+    tickAutoAttack(inst);
+    tickMonsters(inst, dt);
+    tickWaveSpawns(inst, dt);
+    tickProjectiles(inst, dt);
+    tickLoot(inst);
+    tickSafeRoom(inst);
+    tickBranch(inst);
+    tickRevive(inst, dt);
+    broadcastInstanceState(inst);
   }
-  broadcastState();
+
+  // Instance cleanup — run state was always ephemeral (see the top-of-file
+  // INSTANCES note); once nobody's left in one, there's nothing worth
+  // keeping around simulating.
+  for(const [idx, inst] of instances){
+    if(Object.keys(inst.players).length === 0){
+      instances.delete(idx);
+      console.log(`[instance] torn down: ${DUNGEONS[idx].name}`);
+    }
+  }
 }, TICK_MS);
 
 console.log(`Quest for Camelot server listening on ws://${HOST}:${PORT}`);

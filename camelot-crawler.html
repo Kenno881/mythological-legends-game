@@ -56,6 +56,14 @@
     </div>
   </div>
 
+  <!-- DUNGEON SELECT — any completed dungeon is open to anyone, any subset,
+       any time; an uncleared dungeon still needs the whole family present
+       once inside its safe room (server.js's tickSafeRoom/familyFullyConnected) -->
+  <div id="screen-dungeon-select" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Choose Your Dungeon</div>
+    <div id="dungeonList" class="dungeon-grid"></div>
+  </div>
+
   <!-- GAME -->
   <div id="screen-game" class="screen hidden" style="padding:0;background:none;">
     <canvas id="canvas" width="1000" height="750"></canvas>

@@ -46,7 +46,7 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'camelot.jso
 console.log(`[db] DB_PATH resolved to: ${DB_PATH}`);
 
 function defaultState(){
-  return { players: {}, accounts: {}, bestTimes: {}, family: { currency: 0, unlocks: [] } };
+  return { players: {}, accounts: {}, bestTimes: {}, family: { currency: 0, unlocks: [], dungeonsCleared: [] } };
 }
 
 let state = defaultState();
@@ -55,6 +55,12 @@ try {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   state = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   if(!state.accounts) state.accounts = {}; // back-compat: DB files written before accounts existed
+  // back-compat: DB files written before dungeon-select existed had no
+  // dungeonsCleared list — every dungeon would otherwise look "not yet
+  // cleared" and wrongly re-impose the full-family gate on things the
+  // family had already beaten.
+  if(!state.family) state.family = { currency: 0, unlocks: [], dungeonsCleared: [] };
+  if(!state.family.dungeonsCleared) state.family.dungeonsCleared = [];
   // back-compat: accounts written before the character roster existed had
   // a single permanent `classKey` — fold it into a one-item roster instead
   // of losing it (gender unknown for anything created before gender existed).
@@ -149,12 +155,21 @@ function savePlayerStats(player){
   persist();
 }
 
-// Only overwrites if this run beat (or set) the record for that dungeon.
+// Only overwrites the best time if this run beat (or set) the record for
+// that dungeon — but always marks the dungeon cleared (server.js's
+// dungeon-select gate reads dungeonsCleared to decide whether the
+// full-family requirement still applies to a given dungeon; recording a
+// clear and marking it cleared are the same event, so one function does
+// both rather than needing a parallel call site everywhere this fires).
 function recordDungeonClear(dungeonName, seconds){
   const existing = state.bestTimes[dungeonName];
-  if(existing && existing.seconds <= seconds) return;
-  state.bestTimes[dungeonName] = { seconds, achievedAt: Date.now() };
-  persist();
+  if(!existing || existing.seconds > seconds){
+    state.bestTimes[dungeonName] = { seconds, achievedAt: Date.now() };
+  }
+  if(!state.family.dungeonsCleared.includes(dungeonName)){
+    state.family.dungeonsCleared.push(dungeonName);
+  }
+  persist(); // always — dungeonsCleared can change even when the time doesn't beat the record
 }
 
 // ---------- ACCOUNTS (MASTER_DESIGN.md §8a) ----------
@@ -236,7 +251,11 @@ function deleteCharacter(id, characterId){
 }
 
 function getFamilyState(){
-  return { currency: state.family.currency, unlocks: state.family.unlocks.slice() };
+  return {
+    currency: state.family.currency,
+    unlocks: state.family.unlocks.slice(),
+    dungeonsCleared: state.family.dungeonsCleared.slice()
+  };
 }
 
 // Called by server.js's onBossDefeated() — the first in-game event that

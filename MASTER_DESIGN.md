@@ -143,6 +143,38 @@ beyond the session they happen in.
   now shows a real dismissible summary screen (dungeon name, time, kills,
   currency earned) instead of a banner that used to auto-advance past
   before it could be read.
+- **Dungeon select + real independent instances, shipped 2026-08-24 —
+  the biggest structural change yet.** Until now the whole family shared
+  exactly one dungeon/room state server-side, always advancing forward
+  automatically; there was no way back to an earlier dungeon, not even
+  for the `test` account to solo-replay Sherwood. Rebuilt on real
+  per-dungeon instances (`server.js`'s `instances` map, keyed by
+  dungeonIndex — at most one active instance per dungeon, a second player
+  picking the same one joins the existing run) so genuinely simultaneous,
+  independent play works: two family members can replay one dungeon while
+  the other two progress a different one at the same moment, fully
+  isolated. A new dungeon-select screen (after character pick, before the
+  safe room) lists all 4 dungeons up front — **any dungeon is selectable
+  from the outset**, no sequential unlock (§5's eventual level-gated
+  sequence still isn't built — nothing to gate on yet, Phase 3). Any
+  already-cleared dungeon (`db.js`'s new `dungeonsCleared`, family-wide)
+  is unrestricted for anyone, any subset, any time; an uncleared one still
+  needs all 4 family accounts present *in that same instance* — this also
+  finally builds the `firstCleared` idea deferred back at launch (§12
+  Phase 2, §13). The automatic "clear a boss, get shoved into the next
+  dungeon" flow is gone — dismissing the dungeon-complete screen now
+  returns to dungeon-select instead. Victory ("Camelot is Saved") is a
+  one-time celebration on the family's first-ever clear of all 4, not a
+  hard stop — the campaign stays playable afterward, matching the
+  persistent-campaign framing (§10). **Confirmed live with a real 4-tab
+  test (2026-08-24):** two simultaneous instances (different dungeons)
+  never leaked state into each other; the family-gate correctly counted
+  only players actually present in the *same* instance (a family member
+  in a different dungeon did not count toward unlocking this one);
+  clearing a dungeon with all 4 flipped `dungeonsCleared` and immediately
+  let a solo `test` account back in past the safe room; an empty instance
+  was torn down automatically. Each dungeon also gained real lore (why/
+  objective/reward) shown on its select-screen card — see §5.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
@@ -229,6 +261,15 @@ turning into an unorganized pile.
 
 ### Arc I — The Round Table *(built / in progress)*
 
+**Lore, shipped 2026-08-24.** All 4 Arc I dungeons now carry a `lore`
+block (`js/data.js` — why the party's there, the objective, the reward),
+shown on the dungeon-select screen so the family can read it together
+before diving in. Sherwood Approach additionally has a couple of per-room
+`loreText` strings on its branch/wave rooms — "more lore the deeper in you
+go" — as a first proof of concept; extending that to the other 3 dungeons
+is unstarted, same pattern as everything else that's shipped Sherwood-only
+so far.
+
 | # | Name | Theme | Level requirement | Standard boss | Rare/named boss variant |
 |---|---|---|---|---|---|
 | 1 | Sherwood Approach | Forest, tutorial | 1 (always open) | Black Knight of the Ford | Sir Gorlagon, the Crimson Knight (2026-08-24, 12% roll) |
@@ -279,12 +320,16 @@ material when the more obvious folklore figures are used up.
 
 ### Cross-arc mechanics
 
-**Sequential, level-gated access.** A dungeon requires hitting its level
-threshold (and/or clearing prerequisite dungeons) before it's selectable —
-no queueing straight into Mordred's Keep at level 3. Exact thresholds TBD;
-should scale against how leveling actually plays out once Phase 3/4 land.
-Bonus-arc dungeons (Fae Court) don't need to gate main-line progress the
-same way Arc I does.
+**Sequential, level-gated access — still the eventual direction, not
+built.** A dungeon requires hitting its level threshold (and/or clearing
+prerequisite dungeons) before it's selectable — no queueing straight into
+Mordred's Keep at level 3. Exact thresholds TBD; should scale against how
+leveling actually plays out once Phase 3/4 land. Bonus-arc dungeons (Fae
+Court) don't need to gate main-line progress the same way Arc I does.
+**Not implemented in the dungeon-select screen shipped 2026-08-24** — with
+no leveling system to gate on yet, all 4 Arc I dungeons are selectable
+from the start; only the family-presence gate (§8a) restricts an
+as-yet-uncleared one. Revisit once Phase 3 leveling actually exists.
 
 **Structure: maze, not arena.** All dungeons, regardless of arc, keep their
 room-to-room, corridor-and-chamber layout. Enemy escalation (§9) happens as
@@ -450,14 +495,16 @@ room** — no monsters, players can actually see each other there — with a
 glowing exit gate that leads into the first real chamber. Walking into it
 is the "let's go" moment, in the world rather than a menu.
 
-**Full party (all four) required for every dungeon past the first, not
-just first clears — decided, revised 2026-08-23.** Sherwood Approach's
-exit gate always opens; anyone can start it solo or with whoever's
-around. Every dungeon beyond it requires all 4 family accounts online
-before its exit gate opens, every time, not just the first clear — the
-`firstCleared`-flag nuance (full party only for a dungeon's very first
-clear, any subset after) is simpler to revisit later than to get right
-now; see §13.
+**Full party (all four) required only until a dungeon's first clear —
+decided 2026-08-23, revised again 2026-08-24 once dungeon-select
+shipped.** Sherwood Approach's exit gate always opens; anyone can start it
+solo or with whoever's around. Every other dungeon requires all 4 family
+accounts present *in that same run* before its exit gate opens — but only
+until the family clears it once. From then on it's unrestricted for
+anyone, any subset, solo included, permanently (`db.js`'s
+`dungeonsCleared`, checked by `tickSafeRoom`) — this is the
+`firstCleared`-flag idea originally deferred at launch (§12 Phase 2),
+finally built alongside real dungeon selection (§9).
 
 **Level boosting for catch-up.** Ken's account carries an admin flag,
 enabling a direct level-set action on any character — for someone who
@@ -706,11 +753,11 @@ as-is regardless of the run-model change)*
       shipped and removed the same day — the party gate belongs at a
       dungeon's start, not at login. Applies every time, not just first
       clears — see Open Decisions)*
-- [ ] `firstCleared` flag per dungeon (family-wide) — gates the full-party
-      (all four accounts) requirement on first clears only; already-cleared
-      dungeons allow any subset *(deferred — the safe-room gate currently
-      requires all four every time on dungeons past the first, not just
-      first clears)*
+- [x] `firstCleared`-equivalent gate per dungeon (family-wide) *(done
+      2026-08-24, as part of the larger dungeon-select rework below —
+      `db.js`'s `dungeonsCleared` list, checked by `tickSafeRoom`. Once a
+      dungeon's cleared once, the full-party requirement drops for good,
+      solo included)*
 - [ ] Admin flag on Ken's account, gating a direct level-set action for
       catch-up *(deferred — nothing to level yet, Phase 3 isn't built)*
 - [x] Remember the connection passphrase client-side too, alongside the
@@ -813,10 +860,6 @@ as-is regardless of the run-model change)*
   manually editing the persisted JSON file; no admin-reset UI exists yet
   (§8a)
 - Whether the roster could ever grow past four (§8a)
-- Whether the safe-room party gate's "all four, every time" rule (§8a,
-  shipped 2026-08-23) should loosen to "first clear only" once it's
-  actually been played a few times, per §12 Phase 2's original
-  `firstCleared` plan
 - Whether the ~15-minute-per-dungeon target is actually being hit now
   that the difficulty pass and revive/wipe are live — a solo playtest
   (2026-08-24, before party-scaling shipped) and a simulated 4-player one

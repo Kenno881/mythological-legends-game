@@ -210,8 +210,13 @@ function onAudioState(s){
   prevPlayerCds = nextPlayerCds;
   if(playerHurt) sfxPlayerHurt();
 
-  if(s.victory && !victoryFired){ victoryFired = true; sfxVictory(); }
-  if(!s.victory) victoryFired = false;
+  // Campaign victory (server.js's dungeonSummary.campaignVictory — true
+  // only on the boss kill that completes all 4 Arc I dungeons for the
+  // first time) replaced the old persistent s.victory flag now that
+  // dungeons stay replayable instead of the game just ending.
+  const campaignVictory = !!(s.dungeonSummary && s.dungeonSummary.campaignVictory);
+  if(campaignVictory && !victoryFired){ victoryFired = true; sfxVictory(); }
+  if(!campaignVictory) victoryFired = false;
 
   const me = s.players.find(p => p.id === myId);
   if(me && me.dead && !defeatFired){ defeatFired = true; sfxDefeat(); }
