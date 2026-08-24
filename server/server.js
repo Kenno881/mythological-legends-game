@@ -38,7 +38,7 @@
 //     {type:"leftDungeon"}                reply to "leaveDungeon"
 //     {type:"state", tick, players:[...], monsters:[...], projectiles:[...], loot:[...],
 //                     roomId, dungeonName, boss, safe, safeExit:{x,y,r}, wave:{killsSoFar,killTarget}|null,
-//                     family:{currency,unlocks}, rewardBanner, victory, waitingForFamily}
+//                     family:{currency,unlocks}, dungeonSummary, victory, waitingForFamily}
 //                     every tick (20/s) — each player also carries reviveProgress (see REVIVE/WIPE
 //                     below) and targetId (see AUTO-ATTACK below)
 //
@@ -157,24 +157,43 @@ let roomIndex = 0;
 let advancing = false;                  // room/dungeon transition in progress
 let waitingForFamily = false;           // standing at the safe room's exit but not all 4 family accounts are online yet
 let victory = false;
-let rewardBanner = null;                // set for the ~advancing pause after a boss dies — see onBossDefeated()
+let dungeonSummary = null;              // set right when a boss dies, cleared after the short advancing pause — see onBossDefeated()
 let dungeonStartedAt = Date.now();      // reset in loadRoom() on leaving the safe room — feeds best-time tracking (server/db.js), not padded by however long the party took to gather
 
 let monsterSeq = 0, lootSeq = 0, projSeq = 0;
+let dungeonKillCount = 0;               // kills in the current dungeon run — reset alongside dungeonStartedAt, feeds the post-dungeon summary screen
 
 function currentDungeon(){ return DUNGEONS[dungeonIndex]; }
 function currentRoom(){ return currentDungeon().rooms[roomIndex]; }
 function currentRoomId(){ return `${dungeonIndex}:${roomIndex}`; }
 
+// A solo player kiting one target and a full family of 4 auto-attacking
+// simultaneously clear the exact same monster HP at very different real
+// speeds — nothing before this scaled with party size. Applied to monster
+// HP (spawnMonster) and a wave room's kill quota (loadRoom), deliberately
+// NOT to monster damage output — this should make fights take longer with
+// more players, not punish anyone individually. Recomputed at spawn/room-
+// load time from however many characters have actually joined this run
+// (players object, not just currently-connected sockets — a fallen
+// teammate still counts, they're still part of the fight). Tunable: 1.35x
+// per extra player was a starting guess (2p:1.35, 3p:1.7, 4p:2.05),
+// confirmed reasonable via a live 4-tab test (2026-08-24) — see
+// MASTER_DESIGN.md §9 if this needs retuning after real family play.
+function partyScale(){
+  const n = Math.max(1, Object.keys(players).length);
+  return 1 + (n - 1) * 0.35;
+}
+
 // Shared by every place a monster gets spawned (a normal room, the side
 // chamber, a wave room's initial/ongoing spawns) so the instance shape —
 // which fields get reset vs. inherited from ENEMY_TYPES — lives in exactly
 // one place. hpScale lets wave spawns get modestly tougher as a fight goes
-// on (server.js's tickWaveSpawns) without a separate code path.
+// on (server.js's tickWaveSpawns) without a separate code path; it
+// multiplies with partyScale() rather than replacing it.
 function spawnMonster(type, x, y, hpScale){
   const t = ENEMY_TYPES[type];
   const id = 'm' + (++monsterSeq);
-  const hp = Math.round(t.hp * (hpScale || 1));
+  const hp = Math.round(t.hp * (hpScale || 1) * partyScale());
   monsters[id] = Object.assign({}, t, {
     id, type, x, y, hp, maxHp: hp, cd: 0,
     slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
@@ -192,14 +211,18 @@ function loadRoom(idx){
   roomIndex = idx;
   branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
   waveState = null;
-  if(idx === 1) dungeonStartedAt = Date.now(); // idx 0 is always the safe room — the real run starts on leaving it
+  if(idx === 1){ dungeonStartedAt = Date.now(); dungeonKillCount = 0; } // idx 0 is always the safe room — the real run starts on leaving it
   const dungeon = currentDungeon();
   const room = dungeon.rooms[idx];
   for(const id in monsters) delete monsters[id];
   loot = [];
 
   if(room.wave){
-    waveState = { killsSoFar: 0, killTarget: room.killTarget, spawnTimer: 2.5 };
+    // Kill quota scales with party size too, not just monster HP — more
+    // players also means more simultaneous kills happening, which HP
+    // scaling alone doesn't touch.
+    const killTarget = Math.round(room.killTarget * partyScale());
+    waveState = { killsSoFar: 0, killTarget, spawnTimer: 2.5 };
     for(let i = 0; i < 3; i++) spawnWaveMonster(room);
   } else {
     // A boss room may name a rare variant (js/data.js's rareVariant field)
@@ -672,6 +695,7 @@ function hitMonster(mon, dmg, killerId){
     dropLoot(mon);
     const killer = players[killerId];
     if(killer){ killer.totalKills++; db.savePlayerStats(killer); }
+    dungeonKillCount++; // feeds the post-dungeon summary screen, see onBossDefeated()
     if(waveState) waveState.killsSoFar++; // drives tickWaveSpawns()'s escalation
     if(mon.boss) onBossDefeated(mon);
   }
@@ -742,14 +766,28 @@ function onBossDefeated(mon){
   const t = ENEMY_TYPES[mon.type];
   const reward = t.rewardCurrency || 30;
   db.addFamilyCurrency(reward);
-  const defeatText = t.defeatText || d.bossDefeatText;
-  rewardBanner = `${defeatText} (+${reward} to the family's coffers)`;
+
+  // A dedicated dungeon-complete screen (client-side, see js/main.js)
+  // replaced the old timed banner — that only had ~3.5s to be read before
+  // auto-advancing underneath it; this is dismissed by the player
+  // whenever they're ready, so there's no rush to make it readable in
+  // time. dungeonKillCount resets in loadRoom() whenever a fresh dungeon
+  // run actually starts (leaving its safe room).
+  dungeonSummary = {
+    dungeonName: d.name,
+    flavorText: t.defeatText || d.bossDefeatText,
+    rare: !!t.displayName,
+    currencyEarned: reward,
+    familyCurrencyTotal: db.getFamilyState().currency,
+    elapsedSeconds: Math.round(elapsedSeconds),
+    kills: dungeonKillCount
+  };
   console.log(`[boss defeated] ${d.name} in ${elapsedSeconds.toFixed(1)}s — +${reward} currency`);
 
   advancing = true;
   setTimeout(()=>{
     advancing = false;
-    rewardBanner = null;
+    dungeonSummary = null;
     if(dungeonIndex + 1 >= DUNGEONS.length){
       victory = true;
       console.log('[victory] Camelot is saved');
@@ -762,7 +800,7 @@ function onBossDefeated(mon){
       if(p.maxMana) p.mana = p.maxMana;
     }
     loadRoom(0); // the new dungeon's safe room — the party gate (see tickSafeRoom) lives at its exit, not here
-  }, 3500); // long enough to actually read rewardBanner (was 1800ms — bossDefeatText used to flash past unread)
+  }, 2000); // just a short beat now — the summary screen, not this pause, is what gives time to read
 }
 
 // The safe room has no monsters to clear, so it needs its own advance
@@ -1064,7 +1102,7 @@ function broadcastState(){
     } : null,
     wave: waveState ? { killsSoFar: waveState.killsSoFar, killTarget: waveState.killTarget } : null,
     family: db.getFamilyState(),
-    rewardBanner,
+    dungeonSummary,
     victory,
     waitingForFamily,
     players: Object.values(players),

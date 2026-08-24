@@ -93,6 +93,20 @@
     <div id="kbHint">Move: WASD / Arrows / gamepad stick &nbsp; Attack: automatic &nbsp; Ability: E / gamepad A &nbsp; Special: Q / gamepad B</div>
   </div>
 
+  <!-- DUNGEON COMPLETE (per-dungeon summary, shown right on boss defeat —
+       replaces the old timed banner that flashed past unread) -->
+  <div id="screen-dungeon-complete" class="screen hidden">
+    <div class="title-plate" id="dcTitle">Dungeon Cleared</div>
+    <div class="subtitle" id="dcFlavor"></div>
+    <div class="dc-stats">
+      <div class="dc-stat"><span class="dc-stat-label">Time</span><span id="dcTime"></span></div>
+      <div class="dc-stat"><span class="dc-stat-label">Kills</span><span id="dcKills"></span></div>
+      <div class="dc-stat"><span class="dc-stat-label">Coffers earned</span><span id="dcCurrencyEarned"></span></div>
+      <div class="dc-stat"><span class="dc-stat-label">Family coffers</span><span id="dcCurrencyTotal"></span></div>
+    </div>
+    <button class="btn" id="btnDcContinue">Continue</button>
+  </div>
+
   <!-- END -->
   <div id="screen-end" class="screen hidden">
     <div class="title-plate" id="endTitle">Victory</div>

@@ -238,17 +238,10 @@ function checkBranchTransition(s){
   }
 }
 
-// The reward banner (server.js's rewardBanner — boss-defeat flavor text +
-// currency earned) is only set for the few seconds of the post-boss
-// "advancing" pause, so this edge-triggers on it going non-null the same
-// way the others edge-trigger on their own state. Given a longer visible
-// duration than the default banner so it survives the whole pause.
-let lastRewardBanner = null;
-function checkRewardBanner(s){
-  if(s.rewardBanner === lastRewardBanner) return;
-  lastRewardBanner = s.rewardBanner;
-  if(s.rewardBanner) showBanner(s.rewardBanner, 3200);
-}
+// Boss-defeat flavor text + currency earned used to show as a timed banner
+// here — replaced by a dedicated, player-dismissed screen (server.js's
+// dungeonSummary, watched in js/main.js) since a few seconds wasn't enough
+// time to actually read it.
 
 // ---------- DRAW ----------
 function drawGate(spot, [r, g, b], label){
@@ -499,7 +492,6 @@ function renderLoop(){
   if(state === 'game' && latestState){
     checkRoomTransition(latestState);
     checkBranchTransition(latestState);
-    checkRewardBanner(latestState);
     updateHud(latestState);
     updateRoster(latestState);
     draw(latestState);

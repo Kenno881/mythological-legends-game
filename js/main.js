@@ -12,6 +12,7 @@ const screens = {
   login: document.getElementById('screen-login'),
   characters: document.getElementById('screen-characters'),
   game: document.getElementById('screen-game'),
+  dungeonComplete: document.getElementById('screen-dungeon-complete'),
   end: document.getElementById('screen-end')
 };
 let state = "title";
@@ -247,12 +248,50 @@ function onLeftDungeon(){
   showScreen('login');
 }
 
+// ---------- DUNGEON COMPLETE (per-dungeon summary, server.js's
+// dungeonSummary — set the instant a boss dies, cleared again after a
+// short beat) ----------
+// dungeonSummaryShown guards against re-triggering every ~50ms tick while
+// the server still has it set: dungeonSummary is a fresh object on every
+// broadcast (JSON round-trip), so comparing it by reference/equality would
+// fire repeatedly — a plain boolean edge-trigger (like lastWaitingForFamily
+// below) is what's actually needed here.
+let dungeonSummaryShown = false;
+
+function formatDuration(totalSeconds){
+  const m = Math.floor(totalSeconds / 60), s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function showDungeonComplete(summary){
+  document.getElementById('dcTitle').textContent = `Dungeon Cleared: ${summary.dungeonName}`;
+  document.getElementById('dcFlavor').textContent = summary.flavorText;
+  document.getElementById('dcTime').textContent = formatDuration(summary.elapsedSeconds);
+  document.getElementById('dcKills').textContent = summary.kills;
+  document.getElementById('dcCurrencyEarned').textContent = '+' + summary.currencyEarned;
+  document.getElementById('dcCurrencyTotal').textContent = summary.familyCurrencyTotal;
+  showScreen('dungeonComplete');
+}
+
+// Dismissing just returns to the game screen — by then the server has
+// already (or is about to) advance the dungeon underneath; if it's the
+// campaign's last boss, the very next state broadcast's `victory` flag
+// takes over from here (see onStateUpdate below), no special-casing needed.
+document.getElementById('btnDcContinue').addEventListener('click', ()=> showScreen('game'));
+
 // ---------- REACT TO SERVER STATE ----------
 let lastWaitingForFamily = false;
 const fallenOverlay = document.getElementById('fallenOverlay');
 const reviveBar = document.getElementById('reviveBar');
 
 function onStateUpdate(s){
+  if(s.dungeonSummary && !dungeonSummaryShown){
+    dungeonSummaryShown = true;
+    showDungeonComplete(s.dungeonSummary);
+  } else if(!s.dungeonSummary){
+    dungeonSummaryShown = false;
+  }
+
   if(state !== 'game') return;
 
   if(s.waitingForFamily !== lastWaitingForFamily){

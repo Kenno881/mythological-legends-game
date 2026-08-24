@@ -121,6 +121,28 @@ beyond the session they happen in.
   to Sherwood only — the other 3 dungeons still run the old fixed-room
   model; extending this pattern to them is unstarted, same as branching
   chambers before it.
+- **Party-size monster scaling + a real post-dungeon summary screen,
+  shipped 2026-08-24 after the first real solo playtest of the above.**
+  Solo (kiting a Merlin's Apprentice) cleared Sherwood without much
+  trouble — nothing before this scaled monster toughness with how many
+  people are actually playing, so a full family of 4 stacking auto-attack
+  damage would have trivialized it even further. Fixed: `partyScale()` in
+  `server.js` scales spawned monster HP and a wave room's kill quota by
+  `1 + (playerCount-1) * 0.35` (2p:1.35x, 3p:1.7x, 4p:2.05x) — deliberately
+  HP/quota only, not monster damage output, so fights take longer with
+  more players rather than punishing anyone individually. **Confirmed live
+  with an actual 4-tab simulated party (2026-08-24):** the small fixed
+  rooms (1–2) still die in under a second regardless of scaling — 4
+  simultaneous attackers just delete a handful of enemies no matter how
+  tanky — but the wave room took real, meaningful time with genuine
+  deaths/revives along the way, and the boss fully wiped a party that
+  arrived already worn down. Worth knowing: that test party played
+  passively (no active kiting/healing/specials) — a real family playing
+  with actual tactics will likely fare better, so treat this as "harder,
+  confirmed working," not "precisely tuned." Separately, defeating a boss
+  now shows a real dismissible summary screen (dungeon name, time, kills,
+  currency earned) instead of a banner that used to auto-advance past
+  before it could be read.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
@@ -311,11 +333,39 @@ on pickup. No slots, no player choice — purely a loot-luck ladder.
 
 **New direction — three gear slots, decided:**
 
-| Slot | Structure | Effect | Example ladder/items |
+| Slot | Structure | Effect | Ladder/items |
 |---|---|---|---|
 | **Weapon** | Tiered ladder (own progression track) | Attack damage / range scaling | Iron Blade → Steel Blade → Silver Blade → **Excalibur** |
 | **Armor** | Tiered ladder (own progression track) | HP / damage-reduction scaling | Iron Mail → Steel Plate → Silver Plate → **Aegis of Avalon** |
-| **Artifact/Shield** | Curated unique named items, not a linear tier | Bespoke passive effect, one per item | *Round Table Shard* (Camlann), *Mab's Favor* (Fae Court), *Lambton Coil* (Isles & Legends) — idea bank, not committed |
+| **Artifact/Shield** | Curated unique named items, not a linear tier | Bespoke passive effect, one per item | See Arc I catalog below — **proposed 2026-08-24, not yet reviewed/approved** |
+
+**Weapon/Armor naming — resolves the §13 "beyond the current sketch"
+question: the 4-tier shape stays as originally sketched (Iron → Steel →
+Silver → a named capstone), just confirmed rather than re-themed. Iron/
+Steel/Silver read as generic on purpose — they're the common, loot-luck
+tiers any dungeon can drop; only the top tier is a unique, story-tied
+name (Excalibur, Aegis of Avalon). Differentiating every rung further
+(e.g. dungeon-specific material names) was considered and dropped: with
+one universal ladder shared across all dungeons (not per-dungeon loot
+tables), a kid picking up "Steel Blade" in Sherwood and again in Mordred's
+Keep should read as the same upgrade both times, not a confusing reskin.
+
+**Arc I Artifact catalog — proposed 2026-08-24, first full pass at the
+"which boss drops which named item" open question. Needs your read-through
+before it's "decided"; nothing here is wired into code yet (Phase 4/7).**
+
+| Boss | Artifact | Passive effect | Why |
+|---|---|---|---|
+| Black Knight of the Ford | **Ford-Warden's Buckler** | Below 25% HP, block the next hit entirely (once per 20s) | He guards a crossing — the buckler is what lets *you* survive crossing too |
+| Sir Gorlagon, the Crimson Knight (Sherwood's rare variant) | **Gorlagon's Crimson Spur** | +10% move speed always; immune to being stunned by a charge/dash attack | The one boss whose whole kit is a dash — his own trick, turned against the next one who tries it on you |
+| Green Knight | **The Green Knight's Girdle** | Once per dungeon run, a killing blow leaves you at 1 HP instead of dying | Straight from the actual legend — Gawain's girdle protects him from the Green Knight's axe; barely had to invent anything here |
+| Mordred | **Mordred's Broken Blade** | +15% damage on the first hit against each new room's enemies | He strikes first, hard, and without warning — a treacherous opening blow, same as the man |
+| The Questing Beast | **Beast-Hide Mantle** | +10% max HP; immune to fear/flee effects | Ties to the Beast's own planned fear-phase mechanic (§5 idea bank) — wear the hide of the thing that flees, and fear stops touching you |
+
+**Beyond Arc I — still idea bank, not committed** (unnamed dungeons don't
+have artifacts assigned yet): *Round Table Shard* (Camlann, if it ships as
+the capstone — §5's open decision), *Mab's Favor* (Fae Court), *Lambton
+Coil* (Isles & Legends).
 
 **Why Artifact is structured differently:** "artifact" implies something
 specific and story-connected, not a generic number. Tying named artifacts to
@@ -752,9 +802,13 @@ as-is regardless of the run-model change)*
 - Queen Mab's actual boss mechanic, once her bonus dungeon is scoped (§5)
 - Which Arc III folklore figures to build first — full idea bank in §5
   isn't meant to all get built at once
-- Weapon/Armor tier names beyond the current sketch (§7)
-- Full Artifact catalog — which bosses drop which named item, and each
-  item's specific passive effect (§7)
+- ~~Weapon/Armor tier names beyond the current sketch~~ — proposed
+  2026-08-24: the sketch stays as-is, confirmed rather than re-themed
+  (§7). Awaiting your sign-off to move to Decided.
+- ~~Full Artifact catalog~~ — Arc I's five bosses (including Sherwood's
+  rare variant) got a first full proposal 2026-08-24 (§7); Fae Court/
+  Isles & Legends/Mabinogion artifacts still genuinely open, those arcs
+  aren't scoped yet. Awaiting your sign-off to move to Decided.
 - PIN recovery flow — if a kid forgets it, currently the only fix is
   manually editing the persisted JSON file; no admin-reset UI exists yet
   (§8a)
@@ -764,8 +818,10 @@ as-is regardless of the run-model change)*
   actually been played a few times, per §12 Phase 2's original
   `firstCleared` plan
 - Whether the ~15-minute-per-dungeon target is actually being hit now
-  that the difficulty pass and revive/wipe are live — needs a real
-  playtest to judge, not a guess (§9)
+  that the difficulty pass and revive/wipe are live — a solo playtest
+  (2026-08-24, before party-scaling shipped) and a simulated 4-player one
+  (same day, after) both happened, but neither is a real family session
+  with actual tactical play — still needs one to actually judge (§9)
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
