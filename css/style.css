@@ -105,8 +105,9 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .bar.special{background:linear-gradient(90deg,#8a6a1a,var(--gold-bright));}
 #dungeonLabel{font-variant:small-caps;letter-spacing:1px;color:var(--gold-bright);}
 #waveLabel{font-size:11px;color:var(--parchment-dark);margin-top:2px;}
-#gearLabel{display:flex;align-items:center;justify-content:flex-end;gap:5px;}
-#gearIcon{width:16px;height:16px;object-fit:contain;}
+.gear-row{display:flex;align-items:center;justify-content:flex-end;gap:5px;font-size:12px;}
+.gear-row img{width:16px;height:16px;object-fit:contain;}
+#artifactLabel{max-width:220px;font-size:11px;color:var(--gold-bright);}
 #currencyLabel{font-size:11px;color:var(--gold-bright);margin-top:2px;}
 
 #banner{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);

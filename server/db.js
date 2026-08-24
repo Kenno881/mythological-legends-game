@@ -34,9 +34,9 @@
 // leveling is Phase 3, not built. Same for family currency/unlocks: the
 // row and helper exist (addFamilyCurrency) but nothing calls it yet — no
 // currency-earning mechanic exists in server.js today, and inventing one
-// wasn't part of this phase. Gear stays exactly as it works today (flat
-// gearTier, reset to 0 on a fresh join after death) — not touched here,
-// since changing that would be a gameplay/balance call, not infrastructure.
+// wasn't part of this phase. Gear (`equipment`) is real now (2026-08-24,
+// MASTER_DESIGN.md §7's three-slot system) — `{weaponTier, armorTier,
+// artifacts}`, account-wide like kills/deaths, not per saved character.
 
 const path = require('path');
 const fs = require('fs');
@@ -61,6 +61,20 @@ try {
   // family had already beaten.
   if(!state.family) state.family = { currency: 0, unlocks: [], dungeonsCleared: [] };
   if(!state.family.dungeonsCleared) state.family.dungeonsCleared = [];
+  // back-compat: DB files written before the three-slot gear system
+  // existed have `equipment: null` (or nothing) — normalize every player
+  // row to the new shape so loadPlayerStats/savePlayerStats never have to
+  // guard against a missing/old-shape equipment field themselves.
+  for(const id in state.players){
+    const row = state.players[id];
+    if(!row.equipment || typeof row.equipment !== 'object'){
+      row.equipment = { weaponTier: 0, armorTier: 0, artifacts: [] };
+    } else {
+      if(typeof row.equipment.weaponTier !== 'number') row.equipment.weaponTier = 0;
+      if(typeof row.equipment.armorTier !== 'number') row.equipment.armorTier = 0;
+      if(!Array.isArray(row.equipment.artifacts)) row.equipment.artifacts = [];
+    }
+  }
   // back-compat: accounts written before the character roster existed had
   // a single permanent `classKey` — fold it into a one-item roster instead
   // of losing it (gender unknown for anything created before gender existed).
@@ -125,7 +139,8 @@ function touchOrCreatePlayer(id, fallbackName){
   }
   state.players[id] = {
     name: fallbackName || null, level: 1, xp: 0,
-    totalKills: 0, totalDeaths: 0, equipment: null,
+    totalKills: 0, totalDeaths: 0,
+    equipment: { weaponTier: 0, armorTier: 0, artifacts: [] },
     createdAt: now, lastSeenAt: now
   };
   persist();
@@ -134,23 +149,38 @@ function touchOrCreatePlayer(id, fallbackName){
 
 // Called from the 'join' handler once the in-memory player object exists —
 // restores lifetime stats that must survive both a server restart and a
-// fresh character after death (kills/deaths are framed as "how many ever",
-// not per-character session stats).
+// fresh character after death (kills/deaths, and now gear, are framed as
+// "how many ever" / "whatever's equipped," account-wide — not per saved
+// character, matching kills/deaths' existing precedent). weaponTier/
+// armorTier/artifacts are flattened directly onto the returned object,
+// same as totalKills/totalDeaths, since server.js's join handler spreads
+// this straight onto the runtime player (`...db.loadPlayerStats(id)`).
 function loadPlayerStats(id){
   const row = state.players[id];
-  if(!row) return { totalKills: 0, totalDeaths: 0 };
-  return { totalKills: row.totalKills, totalDeaths: row.totalDeaths };
+  if(!row) return { totalKills: 0, totalDeaths: 0, weaponTier: 0, armorTier: 0, artifacts: [] };
+  const eq = row.equipment || { weaponTier: 0, armorTier: 0, artifacts: [] };
+  return {
+    totalKills: row.totalKills, totalDeaths: row.totalDeaths,
+    weaponTier: eq.weaponTier, armorTier: eq.armorTier, artifacts: eq.artifacts.slice()
+  };
 }
 
 // Write-on-key-event / write-on-disconnect — both just persist whatever the
-// in-memory player object currently holds.
+// in-memory player object currently holds. Called on every gear pickup
+// (server.js's applyLootPickup) as well as kills/deaths, same "persist
+// immediately, it's cheap at family scale" pattern as everything else here.
 function savePlayerStats(player){
   const row = state.players[player.id] || (state.players[player.id] = {
-    level: 1, xp: 0, equipment: null, createdAt: Date.now()
+    level: 1, xp: 0, equipment: { weaponTier: 0, armorTier: 0, artifacts: [] }, createdAt: Date.now()
   });
   row.name = player.name;
   row.totalKills = player.totalKills;
   row.totalDeaths = player.totalDeaths;
+  row.equipment = {
+    weaponTier: player.weaponTier || 0,
+    armorTier: player.armorTier || 0,
+    artifacts: player.artifacts || []
+  };
   row.lastSeenAt = Date.now();
   persist();
 }

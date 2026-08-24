@@ -91,7 +91,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS } = require('../js/data.js');
+const { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS } = require('../js/data.js');
 const db = require('./db.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
@@ -213,6 +213,14 @@ function partyScale(inst){
   return 1 + (n - 1) * 0.35;
 }
 
+// One artifact per boss (js/data.js's ARTIFACTS, keyed by bossType) — used
+// by dropLoot() to know which artifact a boss kill grants. Built once,
+// not per-lookup, since ARTIFACTS never changes at runtime.
+const ARTIFACT_ID_BY_BOSS_TYPE = Object.fromEntries(
+  Object.entries(ARTIFACTS).map(([id, a]) => [a.bossType, id])
+);
+function artifactIdForBoss(bossType){ return ARTIFACT_ID_BY_BOSS_TYPE[bossType] || null; }
+
 // Shared by every place a monster gets spawned (a normal room, the side
 // chamber, a wave room's initial/ongoing spawns) so the instance shape —
 // which fields get reset vs. inherited from ENEMY_TYPES — lives in exactly
@@ -241,6 +249,15 @@ function loadRoom(inst, idx){
   const room = dungeon.rooms[idx];
   for(const id in inst.monsters) delete inst.monsters[id];
   inst.loot = [];
+
+  // Artifact effect resets — Mordred's Broken Blade is per-room (every
+  // fresh room gets its own "first hit" bonus), the Green Knight's Girdle
+  // is per-run (only reset when idx===1, the same point dungeonKillCount
+  // resets, matching "once per dungeon run").
+  for(const pid in inst.players){
+    inst.players[pid].brokenBladeUsedThisRoom = false;
+    if(idx === 1) inst.players[pid].girdleUsedThisRun = false;
+  }
 
   if(room.wave){
     // Kill quota scales with party size too, not just monster HP — more
@@ -586,7 +603,7 @@ function handleMessage(id, msg){
       hp: c.hp, maxHp: c.hp,
       mana: c.hasMana ? c.maxMana : 0, maxMana: c.hasMana ? c.maxMana : 0,
       speed: c.speed, radius: c.radius, color: c.color,
-      gearTier: 0,
+      weaponTier: 0, armorTier: 0, artifacts: [], // overridden by loadPlayerStats below — this account-wide gear (§7), not per-character
       targetId: null, // auto-attack's locked target — see tickAutoAttack()
       keys: { up: false, down: false, left: false, right: false },
       cds: { attack: 0, special1: 0, special2: 0 },
@@ -596,11 +613,26 @@ function handleMessage(id, msg){
       hasteMult: 1, hasteTimer: 0,
       reviveProgress: 0,
       dead: false,
+      // Artifact effect state — run/room-scoped, never persisted (unlike
+      // weaponTier/armorTier/artifacts above): Ford-Warden's Buckler's own
+      // cooldown, the Green Knight's Girdle's once-per-run save, Mordred's
+      // Broken Blade's once-per-room bonus. See damagePlayer()/doAttack().
+      fordBucklerCd: 0, girdleUsedThisRun: false, brokenBladeUsedThisRoom: false,
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
       // ever", not per-character session stats; see server/db.js).
       ...db.loadPlayerStats(id)
     };
+    // Static per-character artifact bonuses — applied once here since they
+    // don't change mid-run, rather than recomputed every tick.
+    const newPlayer = inst.players[id];
+    if(newPlayer.artifacts.includes('beastHideMantle')){
+      newPlayer.maxHp = Math.round(newPlayer.maxHp * 1.1);
+      newPlayer.hp = newPlayer.maxHp;
+    }
+    if(newPlayer.artifacts.includes('gorlagonCrimsonSpur')){
+      newPlayer.speed = Math.round(newPlayer.speed * 1.1);
+    }
     playerInstance.set(id, dungeonIndex);
     db.savePlayerStats(inst.players[id]); // persist the resolved name even if stats themselves are unchanged
     console.log(`[join] ${id} as ${classKey} into ${DUNGEONS[dungeonIndex].name} (character ${character.id})`);
@@ -681,6 +713,15 @@ function doAttack(inst, player, target){
   player.cds.attack = a.cd;
   if(a.cost) player.mana -= a.cost;
 
+  let dmgMult = WEAPON_TIERS[player.weaponTier].mult;
+  // Mordred's Broken Blade — +15% on the first attack against a fresh
+  // room's enemies (loadRoom() resets brokenBladeUsedThisRoom), then
+  // normal for the rest of the room.
+  if(player.artifacts.includes('mordredBrokenBlade') && !player.brokenBladeUsedThisRoom){
+    dmgMult *= 1.15;
+    player.brokenBladeUsedThisRoom = true;
+  }
+
   if(a.projectile){
     let ang = 0;
     if(target) ang = Math.atan2(target.y - player.y, target.x - player.x);
@@ -688,13 +729,13 @@ function doAttack(inst, player, target){
       id: 'pr' + (++projSeq), ownerId: player.id,
       x: player.x, y: player.y,
       vx: Math.cos(ang) * 420, vy: Math.sin(ang) * 420,
-      dmg: a.dmg * player.buffMult, life: a.range / 420, r: 6
+      dmg: a.dmg * player.buffMult * dmgMult, life: a.range / 420, r: 6
     });
   } else {
     // Melee still cleaves everything in range rather than only the locked
     // target — that's how this already felt when manually mashing the old
     // attack button, and target-lock mainly matters for ranged aim/UI here.
-    const buffed = a.dmg * player.buffMult;
+    const buffed = a.dmg * player.buffMult * dmgMult;
     forEachAliveMonster(inst, mon=>{
       const d = Math.hypot(mon.x - player.x, mon.y - player.y);
       if(d < a.range + mon.radius) hitMonster(inst, mon, buffed, player.id);
@@ -772,25 +813,61 @@ function hitMonster(inst, mon, dmg, killerId){
   }
 }
 
+// Drops are typed now (§7's three-slot gear, 2026-08-24) — kind is
+// 'weapon'|'armor'|'artifact', with artifactId set for the latter. A trash/
+// side-chamber drop rolls weapon-or-armor 50/50; a boss always drops its
+// own artifact (js/data.js's ARTIFACTS, matched by bossType) plus one
+// weapon/armor token, so a boss fight is always a double reward. The rare
+// variant's old "drops twice" bonus becomes an extra weapon/armor token on
+// top of its own artifact, preserving "the rare variant drops more."
+function randomGearKind(){ return Math.random() < 0.5 ? 'weapon' : 'armor'; }
+function pushGearLoot(inst, x, y, kind, artifactId){
+  inst.loot.push({ id: 'l' + (++lootSeq), x, y, taken: false, kind, artifactId: artifactId || null });
+}
+
 function dropLoot(inst, mon){
+  if(mon.boss){
+    const artifactId = artifactIdForBoss(mon.type);
+    if(artifactId) pushGearLoot(inst, mon.x, mon.y, 'artifact', artifactId);
+    pushGearLoot(inst, mon.x + 20, mon.y + 20, randomGearKind());
+    // Rare boss variant guarantees an extra token on top of its own
+    // artifact above — see js/data.js's blackKnightRare/rareVariant.
+    if(mon.type === 'blackKnightRare'){
+      pushGearLoot(inst, mon.x - 20, mon.y - 20, randomGearKind());
+    }
+    return;
+  }
   // Guaranteed drop inside a side chamber — that's the whole point of the
   // harder detour (see js/data.js's sideChamber.warningText).
-  if(mon.boss || inst.branchState === 'in_side_chamber' || Math.random() < 0.35){
-    inst.loot.push({ id: 'l' + (++lootSeq), x: mon.x, y: mon.y, taken: false });
-  }
-  // Rare boss variant guarantees a second drop on top of the boss-kill
-  // guarantee above — see js/data.js's blackKnightRare/rareVariant.
-  if(mon.type === 'blackKnightRare'){
-    inst.loot.push({ id: 'l' + (++lootSeq), x: mon.x + 20, y: mon.y + 20, taken: false });
+  if(inst.branchState === 'in_side_chamber' || Math.random() < 0.35){
+    pushGearLoot(inst, mon.x, mon.y, randomGearKind());
   }
 }
 
 function damagePlayer(inst, player, dmg){
   if(player.spawnProtection > 0) return;
-  const gearMult = GEAR_TIERS[player.gearTier].mult;
-  const reduced = dmg / (0.6 + gearMult * 0.4);
+
+  // Ford-Warden's Buckler — already below 25% HP and its 20s cooldown is
+  // ready: block this hit entirely rather than reduce it. Checked before
+  // applying damage, using current HP (the trigger is "already critical,"
+  // not "this hit would make you critical").
+  if(player.artifacts.includes('fordWardenBuckler') && player.fordBucklerCd <= 0
+     && player.hp < player.maxHp * 0.25){
+    player.fordBucklerCd = 20;
+    return;
+  }
+
+  const armorMult = ARMOR_TIERS[player.armorTier].mult;
+  const reduced = dmg / (0.6 + armorMult * 0.4);
   player.hp -= reduced;
   if(player.hp <= 0 && !player.dead){
+    // The Green Knight's Girdle — once per dungeon run, a killing blow
+    // leaves you at 1 HP instead of dying. Straight from the legend.
+    if(player.artifacts.includes('greenKnightGirdle') && !player.girdleUsedThisRun){
+      player.girdleUsedThisRun = true;
+      player.hp = 1;
+      return;
+    }
     player.dead = true; player.hp = 0;
     player.totalDeaths++;
     db.savePlayerStats(player);
@@ -1124,6 +1201,7 @@ function tickPlayers(inst, dt){
     if(p.buffTimer > 0){ p.buffTimer -= dt; if(p.buffTimer <= 0) p.buffMult = 1; }
     if(p.hasteTimer > 0){ p.hasteTimer -= dt; if(p.hasteTimer <= 0) p.hasteMult = 1; }
     if(p.spawnProtection > 0) p.spawnProtection = Math.max(0, p.spawnProtection - dt);
+    if(p.fordBucklerCd > 0) p.fordBucklerCd = Math.max(0, p.fordBucklerCd - dt);
   }
 }
 
@@ -1138,6 +1216,23 @@ function tickProjectiles(inst, dt){
   inst.projectiles = inst.projectiles.filter(pr => pr.life > 0 && !pr.dead);
 }
 
+// Applies a typed loot drop (dropLoot()'s kind:'weapon'|'armor'|'artifact')
+// to whoever picked it up, then persists immediately — same "write on key
+// event" pattern already used for kills/deaths. Picking up an artifact
+// already owned is a harmless no-op (still consumed off the ground, no
+// duplicate) — simplest handling, no need to special-case "don't spawn it
+// again" server-side.
+function applyLootPickup(player, l){
+  if(l.kind === 'weapon'){
+    if(player.weaponTier < WEAPON_TIERS.length - 1) player.weaponTier++;
+  } else if(l.kind === 'armor'){
+    if(player.armorTier < ARMOR_TIERS.length - 1) player.armorTier++;
+  } else if(l.kind === 'artifact' && l.artifactId){
+    if(!player.artifacts.includes(l.artifactId)) player.artifacts.push(l.artifactId);
+  }
+  db.savePlayerStats(player);
+}
+
 function tickLoot(inst){
   inst.loot.forEach(l=>{
     if(l.taken) return;
@@ -1146,7 +1241,7 @@ function tickLoot(inst){
       if(p.dead) continue;
       if(Math.hypot(l.x - p.x, l.y - p.y) < p.radius + 16){
         l.taken = true;
-        if(p.gearTier < GEAR_TIERS.length - 1) p.gearTier++;
+        applyLootPickup(p, l);
         break;
       }
     }

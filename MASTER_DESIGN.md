@@ -385,17 +385,28 @@ exploring, not just a critical path to the dungeon boss.
 
 ## 7. Gear & Progression
 
-**Current (as built):** one flat tier stat (Iron → Steel → Silver →
-Excalibur Shard) applying a single damage-reduction multiplier, auto-upgraded
-on pickup. No slots, no player choice — purely a loot-luck ladder.
-
-**New direction — three gear slots, decided:**
+**Built 2026-08-24 — the flat `gearTier` ladder is gone.** Three real
+slots now, each independent: Weapon and Armor as tiered ladders, Artifact
+as the curated catalog below. Account-wide (like lifetime kills/deaths),
+not per saved character — a family member's gear carries across whichever
+of their 4 characters they're currently playing. Persisted in `db.js`
+(`equipment: {weaponTier, armorTier, artifacts}`, with a back-compat
+migration for any row written before this existed). Loot drops are typed
+now (`kind: 'weapon'|'armor'|'artifact'`) instead of one undifferentiated
+pickup — trash/side-chamber drops roll weapon-or-armor 50/50 (same
+guaranteed-vs-35%-chance rule as before); a boss always drops its own
+artifact *plus* a weapon/armor token, so a boss kill is always a double
+reward — confirmed live end-to-end (persistence survives a full
+disconnect + relogin, not just in-memory; a boss granted exactly its
+mapped artifact; Ford-Warden's Buckler blocked a hit below 25% HP, then
+correctly failed to block the next one while its 20s cooldown was still
+running).
 
 | Slot | Structure | Effect | Ladder/items |
 |---|---|---|---|
 | **Weapon** | Tiered ladder (own progression track) | Attack damage / range scaling | Iron Blade → Steel Blade → Silver Blade → **Excalibur** |
 | **Armor** | Tiered ladder (own progression track) | HP / damage-reduction scaling | Iron Mail → Steel Plate → Silver Plate → **Aegis of Avalon** |
-| **Artifact/Shield** | Curated unique named items, not a linear tier | Bespoke passive effect, one per item | See Arc I catalog below — **proposed 2026-08-24, not yet reviewed/approved** |
+| **Artifact/Shield** | Curated unique named items, not a linear tier | Bespoke passive effect, one per item | See Arc I catalog below — **built and wired 2026-08-24** |
 
 **Weapon/Armor naming — resolves the §13 "beyond the current sketch"
 question: the 4-tier shape stays as originally sketched (Iron → Steel →
@@ -408,17 +419,23 @@ one universal ladder shared across all dungeons (not per-dungeon loot
 tables), a kid picking up "Steel Blade" in Sherwood and again in Mordred's
 Keep should read as the same upgrade both times, not a confusing reskin.
 
-**Arc I Artifact catalog — proposed 2026-08-24, first full pass at the
-"which boss drops which named item" open question. Needs your read-through
-before it's "decided"; nothing here is wired into code yet (Phase 4/7).**
+**Arc I Artifact catalog — built and wired 2026-08-24.** Two of the five
+originally-drafted effects (2026-08-24, first proposal) were trimmed to
+match what the game actually has, rather than implying a mechanic that
+isn't real: Gorlagon's Crimson Spur no longer claims charge-stun immunity
+(Charge only ever damaged, never stunned, a player — nothing to be immune
+to); Beast-Hide Mantle no longer claims fear immunity (no fear mechanic
+exists — the Beast's fear phase is still just a §5 idea-bank entry). Both
+trims are copy-only; the clauses can come back for free if those
+mechanics get built later.
 
 | Boss | Artifact | Passive effect | Why |
 |---|---|---|---|
 | Black Knight of the Ford | **Ford-Warden's Buckler** | Below 25% HP, block the next hit entirely (once per 20s) | He guards a crossing — the buckler is what lets *you* survive crossing too |
-| Sir Gorlagon, the Crimson Knight (Sherwood's rare variant) | **Gorlagon's Crimson Spur** | +10% move speed always; immune to being stunned by a charge/dash attack | The one boss whose whole kit is a dash — his own trick, turned against the next one who tries it on you |
+| Sir Gorlagon, the Crimson Knight (Sherwood's rare variant) | **Gorlagon's Crimson Spur** | +10% move speed, always | The one boss whose whole kit is a dash — his own trick, turned against the next one who tries it on you |
 | Green Knight | **The Green Knight's Girdle** | Once per dungeon run, a killing blow leaves you at 1 HP instead of dying | Straight from the actual legend — Gawain's girdle protects him from the Green Knight's axe; barely had to invent anything here |
 | Mordred | **Mordred's Broken Blade** | +15% damage on the first hit against each new room's enemies | He strikes first, hard, and without warning — a treacherous opening blow, same as the man |
-| The Questing Beast | **Beast-Hide Mantle** | +10% max HP; immune to fear/flee effects | Ties to the Beast's own planned fear-phase mechanic (§5 idea bank) — wear the hide of the thing that flees, and fear stops touching you |
+| The Questing Beast | **Beast-Hide Mantle** | +10% max HP | Ties to the Beast's own planned fear-phase mechanic (§5 idea bank) — the fear-immunity half of this waits for that to actually exist |
 
 **Beyond Arc I — still idea bank, not committed** (unnamed dungeons don't
 have artifacts assigned yet): *Round Table Shard* (Camlann, if it ships as
@@ -434,11 +451,11 @@ feel (§10) rather than undercutting it.
 **Excalibur is now a specific weapon**, not a name slapped on the top tier
 of everything — a more satisfying payoff on its own.
 
-**Persistence impact — matters now, before Phase 2 is built.** The player
-schema (§11) needs an `equipment: { weapon, armor, artifact }` object from
-the start rather than a single `gearTier` integer, since retrofitting this
-after Phase 2 ships would mean a data migration. Build it three-slot from
-day one even before all three slots have real loot tables behind them.
+**Persistence — done 2026-08-24.** `db.js`'s player row carries
+`equipment: { weaponTier, armorTier, artifacts }`, exactly the shape §11
+called for building early to avoid a migration — the retrofit never
+actually ended up being needed since this went in as a single pass rather
+than gear shipping ahead of persistence.
 
 **Coexists with in-run boons (§10):** boons stay temporary and per-run;
 gear (all three slots) stays permanent, exactly as before — this change
@@ -862,13 +879,9 @@ as-is regardless of the run-model change)*
 - Queen Mab's actual boss mechanic, once her bonus dungeon is scoped (§5)
 - Which Arc III folklore figures to build first — full idea bank in §5
   isn't meant to all get built at once
-- ~~Weapon/Armor tier names beyond the current sketch~~ — proposed
-  2026-08-24: the sketch stays as-is, confirmed rather than re-themed
-  (§7). Awaiting your sign-off to move to Decided.
-- ~~Full Artifact catalog~~ — Arc I's five bosses (including Sherwood's
-  rare variant) got a first full proposal 2026-08-24 (§7); Fae Court/
-  Isles & Legends/Mabinogion artifacts still genuinely open, those arcs
-  aren't scoped yet. Awaiting your sign-off to move to Decided.
+- Fae Court/Isles & Legends/Mabinogion artifact catalogs — Arc I's five
+  are built (§7); the other arcs' artifacts are still genuinely open,
+  those dungeons aren't scoped yet.
 - PIN recovery flow — if a kid forgets it, currently the only fix is
   manually editing the persisted JSON file; no admin-reset UI exists yet
   (§8a)
@@ -936,3 +949,10 @@ as-is regardless of the run-model change)*
   rare variant, both via the existing `db.addFamilyCurrency` — no spend
   destination exists yet (§11/§12 Phase 5 still open), this only starts
   the number moving (decided and shipped 2026-08-24).
+- The three-slot gear system (§7) replaces the flat `gearTier` ladder for
+  real — Weapon and Armor as independent tiered ladders, Artifact as the
+  5-item Arc I catalog, all account-wide and actually persisted
+  (`db.js`'s `equipment`). Confirmed live: survives a full disconnect,
+  not just in-memory; boss kills grant exactly the right artifact;
+  Ford-Warden's Buckler's block-then-cooldown behaves exactly as designed
+  (decided and shipped 2026-08-24).

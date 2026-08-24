@@ -59,13 +59,55 @@ const CLASSES = {
   }
 };
 
-// ---------- DATA: GEAR TIERS ----------
-const GEAR_TIERS = [
-  {name:"Iron",   mult:1.0,  color:"#9a9a92", sprite:"assets/sprites/gear_tier_iron.png"},
-  {name:"Steel",  mult:1.35, color:"#c7d3de", sprite:"assets/sprites/gear_tier_steel.png"},
-  {name:"Silver", mult:1.75, color:"#dfe6ee", sprite:"assets/sprites/gear_tier_silver.png"},
-  {name:"Excalibur Shard", mult:2.4, color:"#e8c14a", sprite:"assets/sprites/gear_tier_excalibur.png"}
+// ---------- DATA: GEAR ----------
+// Three slots (MASTER_DESIGN.md §7, built 2026-08-24 — replaces the old
+// single flat gearTier). Weapon/Armor keep the same 4-tier shape gear
+// always had, just as two independent ladders now; both reuse the same
+// 4 sprite files (no new art needed — a generic tier icon differentiated
+// by its on-screen label is enough, distinct weapon/armor art is a later
+// polish pass). Artifact is a separate, curated catalog — see ARTIFACTS.
+const WEAPON_TIERS = [
+  {name:"Iron Blade",   mult:1.0,  color:"#9a9a92", sprite:"assets/sprites/gear_tier_iron.png"},
+  {name:"Steel Blade",  mult:1.35, color:"#c7d3de", sprite:"assets/sprites/gear_tier_steel.png"},
+  {name:"Silver Blade", mult:1.75, color:"#dfe6ee", sprite:"assets/sprites/gear_tier_silver.png"},
+  {name:"Excalibur",    mult:2.4,  color:"#e8c14a", sprite:"assets/sprites/gear_tier_excalibur.png"}
 ];
+const ARMOR_TIERS = [
+  {name:"Iron Mail",       mult:1.0,  color:"#9a9a92", sprite:"assets/sprites/gear_tier_iron.png"},
+  {name:"Steel Plate",     mult:1.35, color:"#c7d3de", sprite:"assets/sprites/gear_tier_steel.png"},
+  {name:"Silver Plate",    mult:1.75, color:"#dfe6ee", sprite:"assets/sprites/gear_tier_silver.png"},
+  {name:"Aegis of Avalon", mult:2.4,  color:"#e8c14a", sprite:"assets/sprites/gear_tier_excalibur.png"}
+];
+
+// Curated unique items, one per Arc I boss (MASTER_DESIGN.md §7's first
+// full catalog pass) — bespoke passive effects wired in server.js, not a
+// generic stat tier. `bossType` is the ENEMY_TYPES key it drops from.
+// Two of the five drafted effects were trimmed to match what the game
+// actually has: Charge never stuns a player (only damages), and no fear/
+// flee mechanic exists yet, so those clauses were dropped rather than
+// implying a mechanic that isn't real — see the "why" for each.
+const ARTIFACTS = {
+  fordWardenBuckler: {
+    name: "Ford-Warden's Buckler", bossType: "blackKnight",
+    description: "Below 25% HP, block the next hit entirely (once per 20s)."
+  },
+  gorlagonCrimsonSpur: {
+    name: "Gorlagon's Crimson Spur", bossType: "blackKnightRare",
+    description: "+10% move speed, always."
+  },
+  greenKnightGirdle: {
+    name: "The Green Knight's Girdle", bossType: "greenKnight",
+    description: "Once per dungeon run, a killing blow leaves you at 1 HP instead of dying."
+  },
+  mordredBrokenBlade: {
+    name: "Mordred's Broken Blade", bossType: "mordred",
+    description: "+15% damage on the first hit against each new room's enemies."
+  },
+  beastHideMantle: {
+    name: "Beast-Hide Mantle", bossType: "questingBeast",
+    description: "+10% max HP."
+  }
+};
 
 // ---------- DATA: DUNGEONS ----------
 // Rooms are simple: each has enemy spawns; last room is the boss.
@@ -287,5 +329,5 @@ const REVIVE_CHANNEL_SECONDS = 4;
 // lives only in server.js, since this file ships to the browser as plain JS
 // and anyone can read it from page source.
 if(typeof module !== 'undefined' && module.exports){
-  module.exports = { CLASSES, GEAR_TIERS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS };
+  module.exports = { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS };
 }

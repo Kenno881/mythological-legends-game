@@ -37,11 +37,11 @@ let floorPattern = null;
 floorTileImg.addEventListener('load', () => { floorPattern = ctx.createPattern(floorTileImg, 'repeat'); });
 
 // ---------- SPRITES ----------
-// Preloaded once at startup from CLASSES/ENEMY_TYPES/GEAR_TIERS's `sprite`
-// fields. Anything with no `sprite` entry (or one that hasn't finished
-// loading yet) just falls back to the plain colored shape this game always
-// drew — nothing breaks while art is still in progress for a given class,
-// monster, or gear tier.
+// Preloaded once at startup from CLASSES/ENEMY_TYPES/WEAPON_TIERS/
+// ARMOR_TIERS's `sprite` fields. Anything with no `sprite` entry (or one
+// that hasn't finished loading yet) just falls back to the plain colored
+// shape this game always drew — nothing breaks while art is still in
+// progress for a given class, monster, or gear tier.
 function loadSprites(table){
   const cache = {};
   Object.entries(table).forEach(([key, entry])=>{
@@ -56,15 +56,26 @@ function readySprite(cache, key){
   const img = cache[key];
   return (img && img.complete && img.naturalWidth > 0) ? img : null;
 }
+// Weapon/Armor tiers reuse the same 4 sprite files (no dedicated weapon-
+// vs-armor art yet — see MASTER_DESIGN.md §7) but are two independent
+// ladders now, so each gets its own array-indexed cache.
+function loadTierSprites(tiers){
+  return tiers.map(t=>{
+    if(!t.sprite) return null;
+    const img = new Image();
+    img.src = t.sprite;
+    return img;
+  });
+}
+function tierSpriteFor(cache, tier){
+  const img = cache[tier];
+  return (img && img.complete && img.naturalWidth > 0) ? img : null;
+}
 
 const characterSprites = loadSprites(CLASSES);
 const monsterSprites = loadSprites(ENEMY_TYPES);
-const gearSprites = GEAR_TIERS.map(t => {
-  if(!t.sprite) return null;
-  const img = new Image();
-  img.src = t.sprite;
-  return img;
-});
+const weaponSprites = loadTierSprites(WEAPON_TIERS);
+const armorSprites = loadTierSprites(ARMOR_TIERS);
 // Gendered variants (js/data.js's optional spriteMale/spriteFemale) — none
 // exist yet, so these caches just stay empty until that art lands; nothing
 // else needs to change when it does.
@@ -89,10 +100,6 @@ function spriteFor(classKey, gender){
   return readySprite(characterSprites, classKey); // fallback — always exists today
 }
 function monsterSpriteFor(type){ return readySprite(monsterSprites, type); }
-function gearSpriteFor(tier){
-  const img = gearSprites[tier];
-  return (img && img.complete && img.naturalWidth > 0) ? img : null;
-}
 
 // ---------- BANNER / LOOT TOAST ----------
 let bannerTimeout = null;
@@ -111,8 +118,8 @@ function showLoot(text){
 }
 
 // ---------- HUD ----------
-let lastGearTier = 0;
-let lastHudGearTier = -1; // -1 so the icon syncs on the very first updateHud call
+let lastWeaponTier = 0, lastArmorTier = 0, lastArtifactCount = 0;
+let lastHudWeaponTier = -1, lastHudArmorTier = -1; // -1 so the icons sync on the very first updateHud call
 function setCdVisual(id, remain, total){
   const el = document.getElementById(id);
   const pct = total > 0 ? remain / total : 0;
@@ -127,13 +134,28 @@ function updateHud(s){
   document.getElementById('hpBar').style.width = Math.max(0, me.hp / me.maxHp * 100) + '%';
   document.getElementById('manaWrap').style.display = me.maxMana ? 'block' : 'none';
   if(me.maxMana) document.getElementById('manaBar').style.width = (me.mana / me.maxMana * 100) + '%';
-  document.getElementById('gearLabelText').textContent = 'Gear: ' + GEAR_TIERS[me.gearTier].name;
-  if(me.gearTier !== lastHudGearTier){
-    lastHudGearTier = me.gearTier;
-    const gearTierData = GEAR_TIERS[me.gearTier];
-    const gearIconEl = document.getElementById('gearIcon');
-    gearIconEl.classList.toggle('hidden', !gearTierData.sprite);
-    if(gearTierData.sprite) gearIconEl.src = gearTierData.sprite;
+
+  // Three gear slots (§7) — weapon/armor each get a name + icon, same
+  // toggle-on-change pattern the old single gear icon used; artifacts just
+  // list by name (no bespoke icon art yet, see MASTER_DESIGN.md §7).
+  document.getElementById('weaponLabelText').textContent = WEAPON_TIERS[me.weaponTier].name;
+  document.getElementById('armorLabelText').textContent = ARMOR_TIERS[me.armorTier].name;
+  document.getElementById('artifactLabelText').textContent = me.artifacts.length
+    ? me.artifacts.map(id => ARTIFACTS[id].name).join(', ')
+    : 'None yet';
+  if(me.weaponTier !== lastHudWeaponTier){
+    lastHudWeaponTier = me.weaponTier;
+    const iconEl = document.getElementById('weaponIcon');
+    const sprite = WEAPON_TIERS[me.weaponTier].sprite;
+    iconEl.classList.toggle('hidden', !sprite);
+    if(sprite) iconEl.src = sprite;
+  }
+  if(me.armorTier !== lastHudArmorTier){
+    lastHudArmorTier = me.armorTier;
+    const iconEl = document.getElementById('armorIcon');
+    const sprite = ARMOR_TIERS[me.armorTier].sprite;
+    iconEl.classList.toggle('hidden', !sprite);
+    if(sprite) iconEl.src = sprite;
   }
   document.getElementById('classLabel').textContent = CLASSES[me.classKey].name;
 
@@ -152,10 +174,18 @@ function updateHud(s){
   document.getElementById('btnSpecial2').classList.toggle('hidden', !c.special2);
   if(c.special2) setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
 
-  if(me.gearTier > lastGearTier){
-    showLoot(`Found ${GEAR_TIERS[me.gearTier].name} gear!`);
+  // Loot toast fires for whichever slot actually changed since the last
+  // update — each checked independently since a boss kill can grant more
+  // than one at once (its artifact plus a weapon/armor token).
+  if(me.weaponTier > lastWeaponTier) showLoot(`Found ${WEAPON_TIERS[me.weaponTier].name}!`);
+  if(me.armorTier > lastArmorTier) showLoot(`Found ${ARMOR_TIERS[me.armorTier].name}!`);
+  if(me.artifacts.length > lastArtifactCount){
+    const newestId = me.artifacts[me.artifacts.length - 1];
+    showLoot(`Found the ${ARTIFACTS[newestId].name}!`);
   }
-  lastGearTier = me.gearTier;
+  lastWeaponTier = me.weaponTier;
+  lastArmorTier = me.armorTier;
+  lastArtifactCount = me.artifacts.length;
 }
 
 // ---------- ROSTER ----------
@@ -315,11 +345,19 @@ function draw(s){
   }
 
   // loot
+  // Tinted per kind (§7) so a dropped artifact reads as different from a
+  // weapon/armor token even before you reach it — gold for an artifact
+  // (matches the top gear-tier color this used to always be), the tier's
+  // own color for a weapon/armor token at your current tier for that slot.
   s.loot.forEach(l=>{
+    const me = myPlayer();
+    let color = "#e8c14a";
+    if(l.kind === 'weapon') color = WEAPON_TIERS[me ? me.weaponTier : 0].color;
+    else if(l.kind === 'armor') color = ARMOR_TIERS[me ? me.armorTier : 0].color;
     ctx.save();
     ctx.translate(l.x, l.y);
     ctx.rotate(performance.now() / 400);
-    ctx.fillStyle = GEAR_TIERS[GEAR_TIERS.length - 1].color;
+    ctx.fillStyle = color;
     ctx.fillRect(-8, -8, 16, 16);
     ctx.restore();
   });
@@ -446,9 +484,18 @@ function draw(s){
       return; // no status rings/gear badge while fallen — nothing to show
     }
 
-    ctx.strokeStyle = GEAR_TIERS[p.gearTier].color;
+    // Ring color reads Armor (what you visually look protected by);
+    // Weapon gets the badge icon below; an owned artifact adds its own
+    // glow ring — no bespoke per-artifact icon needed (§7).
+    ctx.strokeStyle = ARMOR_TIERS[p.armorTier].color;
     ctx.lineWidth = p.id === myId ? 4 : 2;
     ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius, 0, Math.PI * 2); ctx.stroke();
+    if(p.artifacts && p.artifacts.length > 0){
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+      ctx.strokeStyle = `rgba(232,193,74,${0.5 + 0.4 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 4, 0, Math.PI * 2); ctx.stroke();
+    }
     if(p.blockActive){
       ctx.strokeStyle = "rgba(220,230,240,0.9)"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 6, 0, Math.PI * 2); ctx.stroke();
@@ -467,11 +514,11 @@ function draw(s){
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(p.x, ringCenterY, ringRadius + 14, 0, Math.PI * 2); ctx.stroke();
     }
-    // Gear tier badge (skipped for Iron — no icon for the default tier, and
-    // nothing to call out yet). Visible for every player, not just yourself,
-    // same "party at a glance" idea as the roster HUD.
-    const gearIcon = p.gearTier > 0 ? gearSpriteFor(p.gearTier) : null;
-    if(gearIcon){
+    // Weapon tier badge (skipped for the base tier — no icon for the
+    // default, and nothing to call out yet). Visible for every player, not
+    // just yourself, same "party at a glance" idea as the roster HUD.
+    const weaponIcon = p.weaponTier > 0 ? tierSpriteFor(weaponSprites, p.weaponTier) : null;
+    if(weaponIcon){
       const badgeSize = 22;
       const badgeX = p.x + ringRadius * 0.6;
       const badgeY = ringCenterY + ringRadius * 0.6;
@@ -479,9 +526,9 @@ function draw(s){
       ctx.fillStyle = "rgba(20,15,8,.75)";
       ctx.arc(badgeX, badgeY, badgeSize / 2 + 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = GEAR_TIERS[p.gearTier].color; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = WEAPON_TIERS[p.weaponTier].color; ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.drawImage(gearIcon, badgeX - badgeSize / 2, badgeY - badgeSize / 2, badgeSize, badgeSize);
+      ctx.drawImage(weaponIcon, badgeX - badgeSize / 2, badgeY - badgeSize / 2, badgeSize, badgeSize);
     }
     if(p.id !== myId){
       ctx.fillStyle = "#fff"; ctx.font = "11px Georgia"; ctx.textAlign = "center";
