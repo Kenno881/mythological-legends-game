@@ -235,7 +235,8 @@ function spawnMonster(inst, type, x, y, hpScale){
     id, type, x, y, hp, maxHp: hp, cd: 0,
     slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
     stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0,
-    chargeCd: t.chargeCd || 0, chargeState: null, chargeTimer: 0
+    chargeCd: t.chargeCd || 0, chargeState: null, chargeTimer: 0,
+    fearCd: t.fearCd || 0, fearState: null, fearCastTimer: 0
   });
   return inst.monsters[id];
 }
@@ -611,6 +612,11 @@ function handleMessage(id, msg){
       buffTimer: 0, buffMult: 1,
       spawnProtection: SPAWN_GRACE,
       hasteMult: 1, hasteTimer: 0,
+      // Boss CC (MASTER_DESIGN.md §5) — stunTimer freezes movement/attacks
+      // entirely (Bandit Captain's slam); fearTimer instead overrides
+      // movement input to run away from fearSourceId while still blocking
+      // attacks (Black Knight's warcry). See tickPlayers/tickAutoAttack/doSpecial.
+      stunTimer: 0, fearTimer: 0, fearSourceId: null,
       reviveProgress: 0,
       dead: false,
       // Artifact effect state — run/room-scoped, never persisted (unlike
@@ -688,7 +694,7 @@ function forEachAliveMonster(inst, fn){
 function tickAutoAttack(inst){
   for(const id in inst.players){
     const player = inst.players[id];
-    if(player.dead || player.cds.attack > 0) continue;
+    if(player.dead || player.cds.attack > 0 || player.stunTimer > 0 || player.fearTimer > 0) continue;
 
     let target = player.targetId ? inst.monsters[player.targetId] : null;
     if(!target || !target.alive){
@@ -744,6 +750,7 @@ function doAttack(inst, player, target){
 }
 
 function doSpecial(inst, player, slot){
+  if(player.stunTimer > 0 || player.fearTimer > 0) return;
   const c = CLASSES[player.classKey];
   const key = 'special' + slot;
   const sp = c[key];
@@ -820,6 +827,16 @@ function hitMonster(inst, mon, dmg, killerId){
 // weapon/armor token, so a boss fight is always a double reward. The rare
 // variant's old "drops twice" bonus becomes an extra weapon/armor token on
 // top of its own artifact, preserving "the rare variant drops more."
+//
+// TRASH_GEAR_DROP_CHANCE was 0.35 at launch (2026-08-24) — with only 4
+// tiers per ladder (3 upgrades needed) and Sherwood's main path alone
+// throwing ~23 trash kills at a solo player (before any side chamber),
+// that maxed both weapon and armor well inside one dungeon clear, which
+// defeats the point of gear being a persistent-campaign progression
+// (MASTER_DESIGN.md's permanent-levels-and-gear decision). Dropped to
+// 0.12 (2026-08-25) so a full dungeon clear meaningfully advances gear
+// without maxing it out solo in one run.
+const TRASH_GEAR_DROP_CHANCE = 0.12;
 function randomGearKind(){ return Math.random() < 0.5 ? 'weapon' : 'armor'; }
 function pushGearLoot(inst, x, y, kind, artifactId){
   inst.loot.push({ id: 'l' + (++lootSeq), x, y, taken: false, kind, artifactId: artifactId || null });
@@ -839,13 +856,17 @@ function dropLoot(inst, mon){
   }
   // Guaranteed drop inside a side chamber — that's the whole point of the
   // harder detour (see js/data.js's sideChamber.warningText).
-  if(inst.branchState === 'in_side_chamber' || Math.random() < 0.35){
+  if(inst.branchState === 'in_side_chamber' || Math.random() < TRASH_GEAR_DROP_CHANCE){
     pushGearLoot(inst, mon.x, mon.y, randomGearKind());
   }
 }
 
+// Returns whether the hit actually landed (false if spawn-protected or
+// Buckler-blocked entirely) — callers that layer a secondary effect on top
+// of damage (e.g. Bandit Captain's slam stun) check this so a fully-blocked
+// hit doesn't still stun.
 function damagePlayer(inst, player, dmg){
-  if(player.spawnProtection > 0) return;
+  if(player.spawnProtection > 0) return false;
 
   // Ford-Warden's Buckler — already below 25% HP and its 20s cooldown is
   // ready: block this hit entirely rather than reduce it. Checked before
@@ -854,7 +875,7 @@ function damagePlayer(inst, player, dmg){
   if(player.artifacts.includes('fordWardenBuckler') && player.fordBucklerCd <= 0
      && player.hp < player.maxHp * 0.25){
     player.fordBucklerCd = 20;
-    return;
+    return false;
   }
 
   const armorMult = ARMOR_TIERS[player.armorTier].mult;
@@ -866,7 +887,7 @@ function damagePlayer(inst, player, dmg){
     if(player.artifacts.includes('greenKnightGirdle') && !player.girdleUsedThisRun){
       player.girdleUsedThisRun = true;
       player.hp = 1;
-      return;
+      return true;
     }
     player.dead = true; player.hp = 0;
     player.totalDeaths++;
@@ -874,6 +895,7 @@ function damagePlayer(inst, player, dmg){
     console.log(`[death] ${player.id} fell in ${currentDungeon(inst).name}`);
     checkForWipe(inst);
   }
+  return true;
 }
 
 // Called after every death — if nobody currently connected is left alive
@@ -1081,7 +1103,10 @@ function tickMonsters(inst, dt){
             if(d < mon.slamRadius){
               const pc = CLASSES[p.classKey];
               const canBlock = p.blockActive && pc.special1 && pc.special1.block;
-              damagePlayer(inst, p, canBlock ? mon.slamDmg * (1 - pc.special1.block) : mon.slamDmg);
+              const landed = damagePlayer(inst, p, canBlock ? mon.slamDmg * (1 - pc.special1.block) : mon.slamDmg);
+              // Bandit Captain's slamStunDur (js/data.js) — a fully-blocked
+              // hit (Buckler/spawn protection) shouldn't still stun.
+              if(landed && mon.slamStunDur) p.stunTimer = Math.max(p.stunTimer, mon.slamStunDur);
             }
           }
           mon.slamCd = 4.5;
@@ -1129,10 +1154,39 @@ function tickMonsters(inst, dt){
       }
     }
 
+    // Fear — a third, distinct boss mechanic (js/data.js's blackKnight
+    // fear* fields, MASTER_DESIGN.md §5's boss-differentiation idea bank).
+    // A telegraphed warcry: once it lands, every player still in range
+    // gets fearTimer set instead of taking damage — tickPlayers() turns
+    // that into forced movement away from this monster and blocks their
+    // attacks while it lasts. Won't start mid-slam/charge-telegraph so
+    // the three mechanics don't stack their tells on top of each other.
+    if(mon.fearRadius){
+      mon.fearCd -= dt;
+      if(mon.fearState === 'telegraph'){
+        mon.fearCastTimer -= dt;
+        if(mon.fearCastTimer <= 0){
+          mon.fearState = null;
+          for(const pid in inst.players){
+            const p = inst.players[pid];
+            if(p.dead) continue;
+            const d = Math.hypot(p.x - mon.x, p.y - mon.y);
+            if(d < mon.fearRadius){
+              p.fearTimer = mon.fearDur;
+              p.fearSourceId = mon.id;
+            }
+          }
+          mon.fearCd = ENEMY_TYPES[mon.type].fearCd;
+        }
+      } else if(mon.fearCd <= 0 && mon.slamState !== 'telegraph' && !mon.chargeState){
+        mon.fearState = 'telegraph'; mon.fearCastTimer = mon.fearTelegraph;
+      }
+    }
+
     if(!target){ continue; }
 
     const d = Math.hypot(target.x - mon.x, target.y - mon.y);
-    if(mon.slamState !== 'telegraph' && !mon.chargeState){
+    if(mon.slamState !== 'telegraph' && !mon.chargeState && mon.fearState !== 'telegraph'){
       if(d > mon.range * 0.7){
         mon.x += (target.x - mon.x) / d * mon.speed * dt;
         mon.y += (target.y - mon.y) / d * mon.speed * dt;
@@ -1186,10 +1240,26 @@ function tickPlayers(inst, dt){
     const p = inst.players[id];
     if(p.dead) continue;
 
-    const { mx, my } = movementVector(p.keys);
-    if(mx !== 0 || my !== 0){
-      p.x += mx * p.speed * p.hasteMult * dt;
-      p.y += my * p.speed * p.hasteMult * dt;
+    // Stun/fear (MASTER_DESIGN.md §5) override normal input-driven movement
+    // entirely while active — stunned means frozen in place, feared means
+    // fleeing the fear source regardless of what keys are held. tickAutoAttack
+    // and doSpecial separately gate attacks on both timers.
+    if(p.stunTimer > 0){
+      p.stunTimer = Math.max(0, p.stunTimer - dt);
+    } else if(p.fearTimer > 0){
+      p.fearTimer = Math.max(0, p.fearTimer - dt);
+      const src = inst.monsters[p.fearSourceId];
+      if(src){
+        const d = Math.hypot(p.x - src.x, p.y - src.y) || 1;
+        p.x += (p.x - src.x) / d * p.speed * dt;
+        p.y += (p.y - src.y) / d * p.speed * dt;
+      }
+    } else {
+      const { mx, my } = movementVector(p.keys);
+      if(mx !== 0 || my !== 0){
+        p.x += mx * p.speed * p.hasteMult * dt;
+        p.y += my * p.speed * p.hasteMult * dt;
+      }
     }
     p.x = Math.max(p.radius, Math.min(W - p.radius, p.x));
     p.y = Math.max(p.radius + 60, Math.min(H - p.radius, p.y));

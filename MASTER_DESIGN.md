@@ -348,12 +348,36 @@ as-yet-uncleared one. Revisit once Phase 3 leveling actually exists.
 room-to-room, corridor-and-chamber layout. Enemy escalation (§9) happens as
 the party moves through the maze, not by dropping them into one open field.
 
-**Idea bank for boss differentiation** *(not committed, for discussion)*:
+**Sherwood Approach's two bosses now have real CC, not just damage —
+shipped 2026-08-25, first slice of boss differentiation beyond
+slam/charge.** The Bandit Captain's slam (js/data.js's `slamStunDur`)
+now stuns on landing, not just damages — a fully-blocked hit (Buckler/
+spawn protection) correctly skips the stun (`damagePlayer` now returns
+whether the hit landed). The Black Knight (and Sir Gorlagon) gained a
+third, wholly separate mechanic — Fear (`fearCd`/`fearRadius`/`fearDur`/
+`fearTelegraph`) — a telegraphed warcry that, once it lands, overrides a
+feared player's movement to flee the boss and blocks their attacks for
+its duration, rather than dealing damage like slam/charge do. Both are
+gated the same "has the fields" way slam/charge already were, and won't
+start telegraphing mid-slam/charge-telegraph. New player-side fields:
+`stunTimer` (freezes movement+attacks entirely), `fearTimer`/
+`fearSourceId` (forces flee, blocks attacks, normal movement input
+ignored) — see server.js's `tickPlayers`/`tickAutoAttack`/`doSpecial`.
+Client shows a 💫/😱 icon over a stunned/feared player and a pulsing
+purple ring for the fear telegraph (distinct from slam's red), see
+js/render.js. Confirmed live: Bandit Captain's stun observed firing
+(`p.stunTimer` set, matching `slamStunDur`) and Black Knight's fear
+observed firing twice during one real boss fight.
+**Idea bank for the other 3 dungeons' bosses** *(not committed, for
+discussion — same shape, not yet built)*:
 - Green Knight: a regrowth/heal phase unless focused down — echoes the
   beheading-game legend (he doesn't stay down easily).
 - Mordred: summons 1-2 adds mid-fight rather than fighting alone.
-- Questing Beast: a fear/flee phase instead of pure tank-and-spank —
-  it's a beast, not a knight, so it shouldn't fight like one.
+- Questing Beast: could reuse the new Fear mechanic (or a variant of it)
+  for a flee phase instead of pure tank-and-spank — it's a beast, not a
+  knight, so it shouldn't fight like one. (Beast-Hide Mantle's §7 fear-
+  immunity clause was trimmed for not existing — now that Fear is real,
+  that's revisitable.)
 - Queen Mab: likely illusion/charm-based, fitting fae trickery over brute
   force.
 - Lambton Worm: could split into segments requiring different targeting,
@@ -402,6 +426,16 @@ mapped artifact; Ford-Warden's Buckler blocked a hit below 25% HP, then
 correctly failed to block the next one while its 20s cooldown was still
 running).
 
+**Trash drop chance lowered 35% → 12%, 2026-08-25** (`server.js`'s
+`TRASH_GEAR_DROP_CHANCE`) — user feedback after playing with the
+three-slot system: gear was arriving far too fast. With only 4 tiers per
+ladder (3 upgrades needed) and Sherwood's main path alone throwing ~23
+trash kills at a solo player before any side chamber, 35% maxed both
+Weapon and Armor well inside one dungeon clear, which defeats gear being
+persistent-campaign progression rather than a same-session curve.
+Side-chamber/boss guaranteed drops are unchanged — those stay the
+"worth the extra risk/effort" reward.
+
 | Slot | Structure | Effect | Ladder/items |
 |---|---|---|---|
 | **Weapon** | Tiered ladder (own progression track) | Attack damage / range scaling | Iron Blade → Steel Blade → Silver Blade → **Excalibur** |
@@ -423,11 +457,13 @@ Keep should read as the same upgrade both times, not a confusing reskin.
 originally-drafted effects (2026-08-24, first proposal) were trimmed to
 match what the game actually has, rather than implying a mechanic that
 isn't real: Gorlagon's Crimson Spur no longer claims charge-stun immunity
-(Charge only ever damaged, never stunned, a player — nothing to be immune
-to); Beast-Hide Mantle no longer claims fear immunity (no fear mechanic
-exists — the Beast's fear phase is still just a §5 idea-bank entry). Both
-trims are copy-only; the clauses can come back for free if those
-mechanics get built later.
+(Charge still only ever damages, never stuns, a player — nothing to be
+immune to); Beast-Hide Mantle no longer claims fear immunity (at the
+time, no fear mechanic existed at all — it does now, shipped 2026-08-25
+on the Black Knight, see §5 — but the Questing Beast's own planned fear
+phase is still just a §5 idea-bank entry, so the immunity clause still
+has nothing to attach to yet). Both trims are copy-only; the clauses can
+come back for free once those mechanics get built for their own bosses.
 
 | Boss | Artifact | Passive effect | Why |
 |---|---|---|---|

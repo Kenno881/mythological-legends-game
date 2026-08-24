@@ -131,7 +131,8 @@ const DUNGEONS = [
       // Forest Path — forks into the Ambush Hollow (branch: true below).
       // Tougher than this room's own bandit trio (two dark knights, not
       // one, plus a bandit) in exchange for a guaranteed drop instead of
-      // the usual 35% chance — see server.js's dropLoot().
+      // the usual trash-kill chance — see server.js's dropLoot()/
+      // TRASH_GEAR_DROP_CHANCE.
       { branch: true,
         loreText: "Bandit tracks crisscross the muddy road — they're closer to Camelot than anyone realized.",
         sideChamber: {
@@ -270,8 +271,11 @@ const ENEMY_TYPES = {
   // one real telegraphed mechanic (a slam cleave) reusing the same
   // slamCd/slamRadius/slamDmg/slamTelegraph fields bosses use — see
   // server.js's generalized "has slam fields" gate in tickMonsters.
+  // slamStunDur adds a real stun on top of the damage (his one mechanic
+  // doing double duty as this dungeon's stun-CC boss) — opt-in per monster
+  // the same way chargeSpeed opts a boss into Charge below.
   banditCaptain:{hp:230, speed:105, dmg:17, radius:20, color:"#5a3a20", range:38, cd:1.0, xpGear:0.4,
-                 slamCd:5.5, slamRadius:90, slamDmg:19, slamTelegraph:1.0,
+                 slamCd:5.5, slamRadius:90, slamDmg:19, slamTelegraph:1.0, slamStunDur:1.1,
                  sprite:"assets/sprites/bandit.png"},
   // Charge fields (chargeCd/chargeDmg/chargeTelegraph/chargeSpeed) are a
   // second, distinct boss mechanic alongside the shared slam AoE — a
@@ -282,9 +286,15 @@ const ENEMY_TYPES = {
   // boss shares one mechanic" gap noted in MASTER_DESIGN.md §3 for this
   // one boss). rewardCurrency feeds the family-currency-on-clear payoff in
   // server.js's onBossDefeated.
+  // fearCd/fearRadius/fearDur/fearTelegraph are a third distinct mechanic
+  // (MASTER_DESIGN.md §5's boss-differentiation idea bank) — a telegraphed
+  // warcry that, once it lands, forces nearby players to flee instead of
+  // dealing damage. Dodgeable the same way Charge is (telegraph first),
+  // gated in tickMonsters the same "has the fields" way slam/charge are.
   blackKnight:  {hp:480, speed:80,  dmg:22, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
                  slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
                  chargeCd:6.5, chargeDmg:24, chargeTelegraph:0.6, chargeSpeed:550,
+                 fearCd:9, fearRadius:170, fearDur:1.6, fearTelegraph:0.8,
                  rewardCurrency:30,
                  sprite:"assets/sprites/blackknightboss.png"},
   // Rare named variant (§5/§6's "sometimes it's someone special") — same
@@ -295,6 +305,7 @@ const ENEMY_TYPES = {
   blackKnightRare:{hp:552, speed:80, dmg:25, radius:26, color:"#7a1f2b", range:46, cd:1.3, boss:true,
                  slamCd:4.5, slamRadius:120, slamDmg:39, slamTelegraph:1.1,
                  chargeCd:6.5, chargeDmg:28, chargeTelegraph:0.6, chargeSpeed:550,
+                 fearCd:9, fearRadius:170, fearDur:1.8, fearTelegraph:0.8,
                  rewardCurrency:60, displayName:"Sir Gorlagon, the Crimson Knight",
                  introText:"A crimson-armored rider blocks the path — Sir Gorlagon himself!",
                  defeatText:"Sir Gorlagon falls! The way to the marshes opens...",

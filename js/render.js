@@ -421,6 +421,16 @@ function draw(s){
       ctx.strokeStyle = "rgba(255,150,40,0.9)"; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(mon.x, mon.y, mon.radius + 6, 0, Math.PI * 2); ctx.stroke();
     }
+    // Fear telegraph (js/data.js's blackKnight fear* fields) — a pulsing
+    // purple ring at the actual fearRadius, distinct from slam's red so the
+    // two AoE tells don't read the same at a glance.
+    if(mon.fearState === 'telegraph'){
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(150,60,210,${0.6 + 0.3 * pulse})`; ctx.lineWidth = 3;
+      ctx.arc(mon.x, mon.y, mon.fearRadius, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(150,60,210,0.12)"; ctx.fill();
+    }
     // Target-lock ring (auto-attack, server.js's tickAutoAttack) — only
     // drawn for the local player's own locked target, so it reads as "what
     // I'm fighting," not clutter from every player's target at once.
@@ -482,6 +492,19 @@ function draw(s){
       }
       ctx.textAlign = "left";
       return; // no status rings/gear badge while fallen — nothing to show
+    }
+
+    // Stun/fear (server.js's tickPlayers) — icon-only, same treatment as
+    // the monster-side stun star/mesmerize icon above rather than another
+    // ring, so it's readable at a glance without adding to the ring stack.
+    if(p.stunTimer > 0){
+      ctx.font = "14px Georgia"; ctx.textAlign = "center";
+      ctx.fillText("💫", p.x, ringCenterY - ringRadius - 8);
+      ctx.textAlign = "left";
+    } else if(p.fearTimer > 0){
+      ctx.font = "14px Georgia"; ctx.textAlign = "center";
+      ctx.fillText("😱", p.x, ringCenterY - ringRadius - 8);
+      ctx.textAlign = "left";
     }
 
     // Ring color reads Armor (what you visually look protected by);
