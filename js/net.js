@@ -51,6 +51,10 @@ let latestState = null; // last {type:"state", ...} payload received
 // right after leaving one, so the dungeon-select screen always has a
 // reasonably fresh copy without a dedicated round-trip (server.js).
 let myDungeonsCleared = [];
+// This account's current level (§10/§5) — refreshed the same way/at the
+// same moments as myDungeonsCleared above, since both only matter at the
+// dungeon-select screen and neither needs a per-tick 'state' refresh.
+let myLevel = 1;
 
 // Doesn't connect until someone actually submits a passphrase (see main.js's
 // title-screen handler) — the passphrase check happens during the WebSocket
@@ -112,6 +116,7 @@ function attemptConnect(passphrase){
         myCharacters = msg.characters || [];
         myIsTest = !!msg.isTest;
         myDungeonsCleared = msg.dungeonsCleared || [];
+        myLevel = msg.level || 1;
         console.log(`[net] welcome, id = ${myId}${resuming ? ' (resuming existing character)' : ''}`);
         clearTimeout(timeout);
         settle(true); // no-op if the 'open' fast-path above already settled this
@@ -128,6 +133,7 @@ function attemptConnect(passphrase){
       } else if(msg.type === 'leftInstance'){
         latestState = null;
         myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;
+        myLevel = msg.level || myLevel;
         if(typeof onLeftInstance === 'function') onLeftInstance(msg);
       } else if(msg.type === 'joinResult'){
         // Explicit reply to sendJoin() — js/main.js waits for this (ok:true)

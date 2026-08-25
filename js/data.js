@@ -135,6 +135,17 @@ function xpToNextLevel(level){ return 60 + (level - 1) * 40; }
 // Rooms are simple: each has enemy spawns; last room is the boss.
 const DUNGEONS = [
   { name: "Sherwood Approach",
+    // Level bands (2026-08-25, MASTER_DESIGN.md §5's "eventual direction,
+    // not built" — now built) — minLevel gates joining at all (checked
+    // server-side at 'join'), xpCapLevel is a ceiling on XP *earned while
+    // playing this dungeon*, not on joining it: once a character reaches
+    // xpCapLevel, further kills here grant 0 xp (server.js's grantXp) so
+    // grinding the easy tutorial dungeon forever can't out-level the game.
+    // Bands deliberately overlap (a dungeon's minLevel sits below the
+    // previous one's cap) rather than requiring you to fully max one out
+    // before the next unlocks. First-cut numbers, not validated by real
+    // family play — see §13.
+    minLevel: 1, xpCapLevel: 8,
     floorColor: "#2f3b23", wallColor: "#1c2417",
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
@@ -207,6 +218,7 @@ const DUNGEONS = [
     ]
   },
   { name: "The Sunken Chapel",
+    minLevel: 5, xpCapLevel: 16,
     floorColor: "#233a3d", wallColor: "#122024",
     bossIntroText: "A hush falls — the Green Knight rises from the flooded nave",
     bossDefeatText: "The Green Knight yields the exchange! Deeper into the keep...",
@@ -229,6 +241,7 @@ const DUNGEONS = [
     ]
   },
   { name: "Mordred's Keep",
+    minLevel: 12, xpCapLevel: 24,
     floorColor: "#2a2226", wallColor: "#150f12",
     bossIntroText: "Mordred himself descends the stair, blade drawn",
     bossDefeatText: "Mordred is cast down! Only the mist-shrouded peak remains...",
@@ -251,6 +264,7 @@ const DUNGEONS = [
     ]
   },
   { name: "Avalon's Mist",
+    minLevel: 20, xpCapLevel: null, // last dungeon — no ceiling needed
     floorColor: "#2a2740", wallColor: "#161425",
     bossIntroText: "Through the mist, the Questing Beast unfurls its wings",
     bossDefeatText: "The Questing Beast falls silent. Camelot is saved.",

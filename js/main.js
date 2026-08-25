@@ -142,13 +142,15 @@ function renderDungeonSelect(){
   DUNGEONS.forEach((d, idx)=>{
     const cleared = myDungeonsCleared.includes(d.name);
     const needsFamily = idx > 0 && !cleared;
+    const underLevel = !!d.minLevel && myLevel < d.minLevel;
     const div = document.createElement('div');
-    div.className = 'dungeon-card';
+    div.className = 'dungeon-card' + (underLevel ? ' locked' : '');
     div.innerHTML = `
       <div class="dungeon-card-head">
         <h3>${d.name}</h3>
         ${cleared ? '<span class="dungeon-badge cleared">Cleared</span>' : ''}
         ${needsFamily ? '<span class="dungeon-badge needs-family">Needs the full family</span>' : ''}
+        ${underLevel ? `<span class="dungeon-badge locked">Requires Level ${d.minLevel}</span>` : ''}
       </div>
       ${d.lore ? `
         <p class="lore-line"><span class="lore-label">Why:</span> ${d.lore.why}</p>
@@ -200,7 +202,8 @@ function onJoinResult(msg){
   const reasons = {
     already_active: "Already in a dungeon on another device — leave that one first.",
     unknown_character: 'That character is out of sync — pick again from the roster.',
-    invalid_dungeon: 'Something went wrong picking that dungeon — try again.'
+    invalid_dungeon: 'Something went wrong picking that dungeon — try again.',
+    level_too_low: `Not ready for this one yet — needs level ${msg.minLevel}.`
   };
   dungeonSelectStatus.textContent = reasons[msg.reason] || 'Something went wrong — try again.';
 }

@@ -291,8 +291,14 @@ function offerBoonChoice(player){
   player.pendingBoonChoices.push(offered);
 }
 
-function grantXp(player, amount){
+function grantXp(inst, player, amount){
   if(!amount || player.dead) return; // a fallen player didn't land the kill that's crediting this
+  // xpCapLevel (js/data.js's DUNGEONS, §5) — once a character has outgrown
+  // this dungeon, further kills here are worth nothing. Not a punishment,
+  // just no reward: they can still play it (helping a lower-level teammate,
+  // farming gear, whatever), there's just no XP left to gain from it.
+  const cap = currentDungeon(inst).xpCapLevel;
+  if(cap && player.level >= cap) return;
   player.xp += amount;
   while(player.xp >= xpToNextLevel(player.level)){
     player.xp -= xpToNextLevel(player.level);
@@ -567,7 +573,8 @@ wss.on('connection', (ws, req) => {
     ws.send(JSON.stringify({
       type: 'welcome', id, roomId: resuming ? currentRoomId(inst) : null, resuming,
       characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest,
-      dungeonsCleared: db.getFamilyState().dungeonsCleared
+      dungeonsCleared: db.getFamilyState().dungeonsCleared,
+      level: db.loadPlayerStats(id).level // dungeon-select's level-gate badges (§5) need this before any dungeon is ever joined
     }));
     console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
   }
@@ -668,7 +675,7 @@ function handleMessage(id, msg){
     if(inst) delete inst.players[id];
     playerInstance.delete(id);
     const ws = clients.get(id);
-    if(ws) ws.send(JSON.stringify({ type: 'leftInstance', dungeonsCleared: db.getFamilyState().dungeonsCleared }));
+    if(ws) ws.send(JSON.stringify({ type: 'leftInstance', dungeonsCleared: db.getFamilyState().dungeonsCleared, level: db.loadPlayerStats(id).level }));
     return;
   }
 
@@ -680,8 +687,8 @@ function handleMessage(id, msg){
     // forever with no feedback — confirmed live 2026-08-24, "the grey
     // screen bug" — since nothing ever arrived to draw.
     const replyWs = clients.get(id);
-    function reject(reason){
-      if(replyWs) replyWs.send(JSON.stringify({ type: 'joinResult', ok: false, reason }));
+    function reject(reason, extra){
+      if(replyWs) replyWs.send(JSON.stringify(Object.assign({ type: 'joinResult', ok: false, reason }, extra)));
     }
 
     // Refuse to clobber a live entry, dead or alive — a dead one now needs
@@ -695,6 +702,18 @@ function handleMessage(id, msg){
     const dungeonIndex = Number(msg.dungeonIndex);
     if(!Number.isInteger(dungeonIndex) || dungeonIndex < 0 || dungeonIndex >= DUNGEONS.length){
       reject('invalid_dungeon');
+      return;
+    }
+    // Level gate (MASTER_DESIGN.md §5's "eventual direction, not built" —
+    // now built alongside the xpCapLevel ceiling below). Checked against
+    // this account's own persisted level, independent of any other family
+    // member's — matches §8a's admin catch-up flag existing specifically
+    // to unblock one behind player, which only makes sense if this gate is
+    // per-account rather than party-wide.
+    const dungeon = DUNGEONS[dungeonIndex];
+    const myLevel = db.loadPlayerStats(id).level;
+    if(dungeon.minLevel && myLevel < dungeon.minLevel){
+      reject('level_too_low', { minLevel: dungeon.minLevel });
       return;
     }
 
@@ -940,7 +959,7 @@ function hitMonster(inst, mon, dmg, killerId){
     const killer = inst.players[killerId];
     if(killer){
       killer.totalKills++;
-      grantXp(killer, xpForKill(mon));
+      grantXp(inst, killer, xpForKill(mon));
       db.savePlayerStats(killer);
     }
     inst.dungeonKillCount++; // feeds the post-dungeon summary screen, see onBossDefeated()

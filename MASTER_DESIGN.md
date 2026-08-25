@@ -360,16 +360,39 @@ material when the more obvious folklore figures are used up.
 
 ### Cross-arc mechanics
 
-**Sequential, level-gated access — still the eventual direction, not
-built.** A dungeon requires hitting its level threshold (and/or clearing
-prerequisite dungeons) before it's selectable — no queueing straight into
-Mordred's Keep at level 3. Exact thresholds TBD; should scale against how
-leveling actually plays out once Phase 3/4 land. Bonus-arc dungeons (Fae
-Court) don't need to gate main-line progress the same way Arc I does.
-**Not implemented in the dungeon-select screen shipped 2026-08-24** — with
-no leveling system to gate on yet, all 4 Arc I dungeons are selectable
-from the start; only the family-presence gate (§8a) restricts an
-as-yet-uncleared one. Revisit once Phase 3 leveling actually exists.
+**Sequential, level-gated access — built 2026-08-25.** A dungeon requires
+hitting its level threshold before it's selectable at all — checked
+server-side at 'join' (`server.js`, rejects with `level_too_low` +
+the required level), surfaced proactively on the dungeon-select screen as
+a "Requires Level N" badge (`js/main.js`) rather than only as an
+after-the-click error. Checked against the joining account's own level,
+independent of teammates' — matches §8a's admin catch-up flag existing
+specifically to unblock one behind player, which only makes sense if this
+gate is per-account. Paired with a second, related mechanic: each
+dungeon's `xpCapLevel` (`js/data.js`) caps how much XP is *earnable while
+farming that dungeon* — once a character reaches the cap, further kills
+there grant 0 XP (no punishment, just no more reward), which is the actual
+fix for "grinding the easy first dungeon forever shouldn't let you
+out-level the whole game." Bands deliberately overlap — a dungeon's
+`minLevel` sits below the previous one's `xpCapLevel` — so you don't have
+to fully max one out before the next unlocks:
+
+| Dungeon | minLevel | xpCapLevel |
+|---|---|---|
+| Sherwood Approach | 1 (always open) | 8 |
+| The Sunken Chapel | 5 | 16 |
+| Mordred's Keep | 12 | 24 |
+| Avalon's Mist | 20 | none (last dungeon) |
+
+**First-cut numbers, not validated by real family play** — same caveat as
+every other number shipped this session (XP curve, per-kill weights, solo
+damage multiplier). Confirmed live: a real level-3 test account correctly
+saw Sunken Chapel/Mordred's Keep/Avalon's Mist all badged and blocked;
+temporarily lowering Sherwood's `xpCapLevel` to match that character's
+current level confirmed further kills granted exactly 0 XP (level/xp both
+stayed frozen across 3 real kills) — reverted before committing. Bonus-arc
+dungeons (Fae Court) still won't need to gate main-line progress the same
+way once they exist.
 
 **Structure: maze, not arena.** All dungeons, regardless of arc, keep their
 room-to-room, corridor-and-chamber layout. Enemy escalation (§9) happens as
@@ -697,7 +720,6 @@ and wasn't part of what this pass changed.
 **Open questions:**
 - Whether the 1.6x solo multiplier is actually well-tuned — needs a real
   solo run to judge, same caveat as the party-scaling numbers above.
-- Exact level thresholds per dungeon (§5).
 - Whether a wipe should ever cost something beyond lost time (a death
   counter, a run-time penalty) — currently a wipe is "try the same
   dungeon again from its safe room," no other consequence.
@@ -971,7 +993,9 @@ as-is regardless of the run-model change)*
       roll *(done 2026-08-24, Sherwood's Black Knight/Sir Gorlagon only —
       rolled once at boss-room load, not a mid-run ambush; loot tied to
       which boss shows up via `rewardCurrency`/guaranteed extra drop)*
-- [ ] Level-gated dungeon unlock sequence (§5)
+- [x] Level-gated dungeon unlock sequence (§5) *(done 2026-08-25 — paired
+      with a per-dungeon XP cap so the first dungeon can't be farmed past
+      its usefulness; see §5's table)*
 - [ ] Weapon/Armor tier ladders + Artifact drop tables per dungeon/boss (§7)
 - [ ] Extend auto-attack's engine-wide but everything else above to the
       other 3 dungeons (Sunken Chapel, Mordred's Keep, Avalon's Mist)
@@ -1018,8 +1042,6 @@ as-is regardless of the run-model change)*
 - Extending branching side chambers (§9) beyond Sherwood Approach's one
   chamber — same pattern for the other 3 dungeons, and whether any
   dungeon should get more than one branch
-- Exact level thresholds per dungeon (§5)
-- What grants permanent XP — boss kills, dungeon completion, both? (§10)
 - In-run boon pool size/rarity (§10)
 - Concrete unlock catalog for meta-progression (§11)
 - Rare/named boss roster per dungeon — who they are, what makes each one
@@ -1124,3 +1146,16 @@ as-is regardless of the run-model change)*
   and the HP-boon's exact-delta math. All the actual numbers (XP curve,
   per-kill weights, level growth rate, boon magnitudes) are first-cut
   guesses, not validated by real family play.
+- Level-gated dungeon unlock + a per-dungeon XP cap (§5), shipped
+  2026-08-25 — resolves "exact level thresholds per dungeon" now that
+  Phase 3 leveling exists to gate on. `minLevel` blocks joining a dungeon
+  below its threshold outright (checked server-side, badged proactively on
+  the dungeon-select screen); `xpCapLevel` is the separate, actually-load-
+  bearing half — a ceiling on XP earned *while farming that dungeon*, which
+  is what actually stops a family from grinding the easy tutorial dungeon
+  into permanent over-leveling. Bands overlap by design (next dungeon's
+  minLevel sits below the previous one's cap). Confirmed live: a real
+  level-3 account correctly saw the other 3 dungeons badged/blocked, and
+  temporarily capping Sherwood at that same level confirmed further real
+  kills granted exactly 0 XP. First-cut numbers, not validated by real
+  family play — see §5's table.
