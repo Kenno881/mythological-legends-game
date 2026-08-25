@@ -275,9 +275,9 @@ toward this, §9.
 
 | Class | Role | HP | Key kit | Complexity | Inspiration |
 |---|---|---|---|---|---|
-| **Squire** | Simple melee | 130 | Auto-melee + Shield Bash (AoE stun) | Easy — built for a young child | EQ/Albion Warrior |
-| **Knight** | Tank | 110 | Attack, Parry, Taunt (hard aggro pull) | Moderate | Albion Paladin/Armsman |
-| **Merlin's Apprentice** | Ranged DPS | 75 | Arcane Bolt, Arcane Nova | Complex — mana management | EQ/Albion Wizard/Sorcerer |
+| **Squire** | Simple melee | 130 | Auto-melee + Shield Bash (AoE stun); Second Wind (self heal+shield) at level 3 | Easy — built for a young child | EQ/Albion Warrior |
+| **Knight** | Tank | 110 | Attack, Parry, Taunt (hard aggro pull, level 3) | Moderate | Albion Paladin/Armsman |
+| **Merlin's Apprentice** | Ranged DPS | 75 | Arcane Bolt, Arcane Nova; Blink (reposition) at level 3 | Complex — mana management | EQ/Albion Wizard/Sorcerer |
 | **Avalon Cleric** | Healer | 85 | Staff strike, Healing Light, group Blessing | Complex — party awareness | EQ/Albion Cleric |
 
 ### Planned additions (curated from DAoC Albion + EQ, not a full port of either)
@@ -848,11 +848,13 @@ questions below directly:
   `boonSpeedMult` to 1 and clears any still-pending choice queue. Surviving
   a fall-and-revive mid-run is NOT "die" here — boons persist through that,
   since the whole point of revive is staying in the run, not restarting it.
-- **Persistence:** `level`/`xp` were always in `db.js`'s schema (§11) but
-  never written to — wired now, account-wide like kills/deaths/gear (not
-  per saved character; §11's original schema sketch was per-character,
-  this matches what everything else in that row actually shipped as
-  instead).
+- **Persistence: per-character, not account-wide — changed 2026-08-26,
+  see below.** `level`/`xp` live on each saved character's own roster
+  entry (`server/db.js`'s `accounts.<id>.characters[].level/xp`), matching
+  §11's original schema sketch, not the account-wide `players` row this
+  first slice used. Trying a different one of an account's up to 4 saved
+  characters starts that character back at level 1 rather than inheriting
+  another one's progress.
 - **HUD:** class label gained a `Lv N · X/Y xp` line (`js/render.js`). No
   XP progress *bar* yet — text only, kept deliberately small for this pass.
 - **Confirmed live** (temporarily lowered `xpToNextLevel` to trigger a fast
@@ -862,6 +864,46 @@ questions below directly:
   as expected, and picking Iron Will bumped maxHp from 140→168 while
   preserving the exact amount of damage already taken (hp gained precisely
   the same +28 delta as maxHp, not a heal-to-full).
+
+**Reconciled + ability unlocks added 2026-08-26 — two sessions (this
+machine and the work laptop) built Phase 3 independently on the same
+starting commit and diverged.** The work-laptop session shipped the
+boons/stat-scaling/dungeon-gating slice above, account-wide. This machine
+separately built a different leveling core the same day — per-character,
+with real ability unlocks — before either side knew about the other's
+work. Reconciled by keeping this section's boons, `xpToNextLevel` curve,
+`XP_PER_TRASH_WEIGHT`, `LEVEL_STAT_BONUS_PER_LEVEL`, and `minLevel`/
+`xpCapLevel` numbers exactly as shipped and tested here, converting only
+*where* level/xp live (per-character, see above), and layering the
+ability-unlock work on top:
+
+- **Every class's `special2` now carries an `unlockLevel` (3,
+  uniformly).** Knight/Cleric/Enchanter's existing Taunt/Blessing/Group
+  Haste just got gated behind it (`server.js`'s `doSpecial`, the same
+  silent no-op a class simply lacking `special2` already got). Squire and
+  Merlin's Apprentice had no `special2` at all before this, so both got a
+  genuinely new ability rather than staying empty: Squire's **Second
+  Wind** (self heal + a brief damage-reduction shield, `cost:0` like
+  Shield Bash) and Apprentice's **Blink** (instant reposition away from
+  the nearest monster, routed through the same wall-collision system
+  (§9) normal movement uses — moved in 20 small sub-steps rather than one
+  big jump, since a single large displacement can otherwise tunnel clean
+  through a wall thinner than the jump distance without ever registering
+  as a collision; caught live while verifying this reconciliation).
+- **⚠️ One-time consequence of the account-wide → per-character switch:**
+  any level/XP a character had already earned on the account-wide system
+  (if the family played on it between the two sessions) has no sensible
+  destination to migrate to — every character's level/xp normalizes to
+  1/0 the first time the reconciled server boots against the existing
+  DB. Gear, kills, currency, and dungeon-clears are untouched.
+- Confirmed live end-to-end after reconciling: a fresh character starts
+  independently at level 1 regardless of another saved character's
+  level; XP grants/boon queuing/boon-choice math still land exactly as
+  before; dungeon-select's level-gate badges now read the *selected*
+  character's own level; crossing level 3 reveals the ability button and
+  both new abilities work correctly, including the wall-tunneling fix
+  above (a blink toward a wall now stops at it instead of jumping clean
+  through).
 
 **Open questions (unchanged from before this pass, still genuinely open):**
 - Whether the numbers are actually well-tuned — the curve

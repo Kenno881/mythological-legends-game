@@ -233,11 +233,15 @@ function soloDangerMult(inst){
   return Object.keys(inst.players).length === 1 ? SOLO_DANGER_MULT : 1;
 }
 
-// ---------- LEVELING & BOONS (MASTER_DESIGN.md §10, Phase 3 first slice) ----------
-// Permanent XP/level (survives forever, via db.js — same account-wide,
-// not-per-saved-character shape kills/deaths/gear already use) plus
-// temporary in-run boons (gone on leave/die, §10's "relic or blessing for
-// the rest of this run" — a wipe counts as "die" here, see checkForWipe).
+// ---------- LEVELING & BOONS (MASTER_DESIGN.md §10, Phase 3) ----------
+// Permanent XP/level (survives forever, via db.js) — per-character, not
+// the account-wide shape kills/deaths/gear use (reconciled 2026-08-26;
+// this was account-wide in the first Phase 3 slice, changed since a
+// player trying a different saved character is meant to start that
+// character back at level 1, not inherit progress from another one) —
+// plus temporary in-run boons (gone on leave/die, §10's "relic or
+// blessing for the rest of this run" — a wipe counts as "die" here, see
+// checkForWipe).
 // A player's derived combat stats stack from several independent sources —
 // class base, gear (existing), one-off artifacts (existing), and now
 // permanent level growth plus in-run boon picks. maxHp is recomputed from
@@ -307,6 +311,11 @@ function grantXp(inst, player, amount){
     recomputeMaxHp(player);
     offerBoonChoice(player);
   }
+  // Persisted on every grant, not just level-ups — same "write on every
+  // key event" pattern totalKills already uses, so a disconnect mid-level
+  // never loses partial XP progress. Per-character (server/db.js), not
+  // routed through savePlayerStats/the account-wide row.
+  db.saveCharacterProgress(player.id, player.characterId, player.level, player.xp);
 }
 
 function applyBoonChoice(player, boonId){
@@ -607,9 +616,13 @@ wss.on('connection', (ws, req) => {
 
     ws.send(JSON.stringify({
       type: 'welcome', id, roomId: resuming ? currentRoomId(inst) : null, resuming,
+      // Level is per-character now (MASTER_DESIGN.md §10), not a single
+      // account-wide number — each entry in `characters` already carries
+      // its own level/xp (db.js), so dungeon-select's level-gate badges
+      // read the chosen character's own level client-side instead of a
+      // separate top-level field here.
       characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest,
-      dungeonsCleared: db.getFamilyState().dungeonsCleared,
-      level: db.loadPlayerStats(id).level // dungeon-select's level-gate badges (§5) need this before any dungeon is ever joined
+      dungeonsCleared: db.getFamilyState().dungeonsCleared
     }));
     console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
   }
@@ -710,7 +723,7 @@ function handleMessage(id, msg){
     if(inst) delete inst.players[id];
     playerInstance.delete(id);
     const ws = clients.get(id);
-    if(ws) ws.send(JSON.stringify({ type: 'leftInstance', dungeonsCleared: db.getFamilyState().dungeonsCleared, level: db.loadPlayerStats(id).level }));
+    if(ws) ws.send(JSON.stringify({ type: 'leftInstance', dungeonsCleared: db.getFamilyState().dungeonsCleared }));
     return;
   }
 
@@ -741,12 +754,11 @@ function handleMessage(id, msg){
     }
     // Level gate (MASTER_DESIGN.md §5's "eventual direction, not built" —
     // now built alongside the xpCapLevel ceiling below). Checked against
-    // this account's own persisted level, independent of any other family
-    // member's — matches §8a's admin catch-up flag existing specifically
-    // to unblock one behind player, which only makes sense if this gate is
-    // per-account rather than party-wide.
+    // this specific character's own persisted level (§10 — per-character,
+    // not account-wide), independent of any other family member's or any
+    // of this account's other saved characters'.
     const dungeon = DUNGEONS[dungeonIndex];
-    const myLevel = db.loadPlayerStats(id).level;
+    const myLevel = character.level || 1;
     if(dungeon.minLevel && myLevel < dungeon.minLevel){
       reject('level_too_low', { minLevel: dungeon.minLevel });
       return;
@@ -769,6 +781,7 @@ function handleMessage(id, msg){
       cds: { attack: 0, special1: 0, special2: 0 },
       blockActive: false, blockTimer: 0,
       buffTimer: 0, buffMult: 1,
+      shieldTimer: 0, shieldMult: 1, // Squire's Second Wind — see damagePlayer()
       spawnProtection: SPAWN_GRACE,
       hasteMult: 1, hasteTimer: 0,
       // Boss CC (MASTER_DESIGN.md §5) — stunTimer freezes movement/attacks
@@ -783,11 +796,14 @@ function handleMessage(id, msg){
       // cooldown, the Green Knight's Girdle's once-per-run save, Mordred's
       // Broken Blade's once-per-room bonus. See damagePlayer()/doAttack().
       fordBucklerCd: 0, girdleUsedThisRun: false, brokenBladeUsedThisRoom: false,
-      // Permanent level growth (restored below) plus in-run boons (§10) —
-      // boon mults always start fresh at 1 here, never persisted, since a
-      // boon is gone the moment you leave or rejoin (see checkForWipe for
-      // the mid-run-wipe case, which clears them the same way).
-      level: 1, xp: 0, levelMult: 1, artifactHpMult: 1,
+      // Permanent level growth plus in-run boons (§10) — level/xp are
+      // per-character (sourced from the `character` row already fetched
+      // above, not db.loadPlayerStats, which stays account-wide for
+      // kills/deaths/gear only). Boon mults always start fresh at 1 here,
+      // never persisted, since a boon is gone the moment you leave or
+      // rejoin (see checkForWipe for the mid-run-wipe case, which clears
+      // them the same way).
+      level: character.level || 1, xp: character.xp || 0, levelMult: 1, artifactHpMult: 1,
       boonHpMult: 1, boonDmgMult: 1, boonSpeedMult: 1, pendingBoonChoices: [],
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
@@ -934,6 +950,7 @@ function doSpecial(inst, player, slot){
   const key = 'special' + slot;
   const sp = c[key];
   if(!sp) return;
+  if(sp.unlockLevel && player.level < sp.unlockLevel) return; // not learned yet — same silent no-op as a class not having this slot at all
   if(player.cds[key] > 0) return;
   if(sp.cost && player.mana < sp.cost) return;
 
@@ -981,6 +998,42 @@ function doSpecial(inst, player, slot){
       const p = inst.players[id];
       if(p.dead) continue;
       p.hasteMult = sp.mult; p.hasteTimer = sp.dur;
+    }
+  } else if(sp.name === "Second Wind"){
+    // Self-only, no aim — a flat heal plus a brief incoming-damage
+    // reduction (checked in damagePlayer), not a spell. Keeps Squire's
+    // "hard to go wrong" identity now that he has two buttons.
+    player.hp = Math.min(player.maxHp, player.hp + sp.heal);
+    player.shieldMult = 1 - sp.shield; player.shieldTimer = sp.shieldDur;
+  } else if(sp.name === "Blink"){
+    // Instant reposition away from the nearest monster — answers
+    // Apprentice's real weakness (low HP, no mobility) rather than being
+    // filler. Falls back to the currently-held movement direction if no
+    // monster is around to flee from. Routed through moveWithWalls (§9's
+    // wall collision) the same way normal movement/Fear's forced-flee
+    // already are, so a blink can't teleport straight through a wall.
+    const near = nearestMonster(inst, player);
+    let dx, dy;
+    if(near){
+      const d = Math.hypot(player.x - near.x, player.y - near.y) || 1;
+      dx = (player.x - near.x) / d; dy = (player.y - near.y) / d;
+    } else {
+      const mv = movementVector(player.keys);
+      dx = mv.mx; dy = mv.my;
+    }
+    if(dx !== 0 || dy !== 0){
+      // moveWithWalls only checks the destination point, not the path to
+      // it — fine for small per-tick moves, but one big 220px jump can
+      // land clean on the far side of a wall thinner than that without the
+      // destination ever overlapping it ("tunneling"). Broken into small
+      // sub-steps so each one is well under typical wall thickness — same
+      // trick that keeps normal per-tick movement from tunneling, applied
+      // manually here since this is one instant jump, not many ticks.
+      const walls = currentRoom(inst).walls;
+      const steps = 20;
+      for(let i = 0; i < steps; i++) moveWithWalls(player, dx * sp.dist / steps, dy * sp.dist / steps, walls);
+      player.x = Math.max(player.radius, Math.min(W - player.radius, player.x));
+      player.y = Math.max(player.radius + 60, Math.min(H - player.radius, player.y));
     }
   }
 }
@@ -1063,7 +1116,9 @@ function damagePlayer(inst, player, dmg){
   }
 
   const armorMult = ARMOR_TIERS[player.armorTier].mult;
-  const reduced = dmg / (0.6 + armorMult * 0.4);
+  // Squire's Second Wind (shieldMult, set in doSpecial) — a brief flat
+  // damage-reduction window, applied before armor's own reduction.
+  const reduced = dmg * player.shieldMult / (0.6 + armorMult * 0.4);
   player.hp -= reduced;
   if(player.hp <= 0 && !player.dead){
     // The Green Knight's Girdle — once per dungeon run, a killing blow
@@ -1464,6 +1519,7 @@ function tickPlayers(inst, dt){
     const c = CLASSES[p.classKey];
     if(p.maxMana) p.mana = Math.min(p.maxMana, p.mana + c.manaRegen * dt);
     if(p.blockTimer > 0){ p.blockTimer -= dt; if(p.blockTimer <= 0) p.blockActive = false; }
+    if(p.shieldTimer > 0){ p.shieldTimer -= dt; if(p.shieldTimer <= 0) p.shieldMult = 1; }
     if(p.buffTimer > 0){ p.buffTimer -= dt; if(p.buffTimer <= 0) p.buffMult = 1; }
     if(p.hasteTimer > 0){ p.hasteTimer -= dt; if(p.hasteTimer <= 0) p.hasteMult = 1; }
     if(p.spawnProtection > 0) p.spawnProtection = Math.max(0, p.spawnProtection - dt);

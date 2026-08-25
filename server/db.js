@@ -86,6 +86,16 @@ try {
         : [];
       delete acct.classKey;
     }
+    // back-compat: characters saved before per-character leveling existed
+    // (MASTER_DESIGN.md §10, reconciled 2026-08-26 from Phase 3's original
+    // account-wide leveling onto per-character) have no level/xp at all —
+    // including any leveled up on the account-wide system this replaces,
+    // which has no sensible per-character value to migrate into, so those
+    // start fresh at 1.
+    for(const ch of acct.characters){
+      if(typeof ch.level !== 'number') ch.level = 1;
+      if(typeof ch.xp !== 'number') ch.xp = 0;
+    }
   }
   console.log(`[db] loaded existing state (${Object.keys(state.players || {}).length} known players)`);
 } catch (err) {
@@ -157,16 +167,11 @@ function touchOrCreatePlayer(id, fallbackName){
 // this straight onto the runtime player (`...db.loadPlayerStats(id)`).
 function loadPlayerStats(id){
   const row = state.players[id];
-  if(!row) return { totalKills: 0, totalDeaths: 0, weaponTier: 0, armorTier: 0, artifacts: [], level: 1, xp: 0 };
+  if(!row) return { totalKills: 0, totalDeaths: 0, weaponTier: 0, armorTier: 0, artifacts: [] };
   const eq = row.equipment || { weaponTier: 0, armorTier: 0, artifacts: [] };
   return {
     totalKills: row.totalKills, totalDeaths: row.totalDeaths,
-    weaponTier: eq.weaponTier, armorTier: eq.armorTier, artifacts: eq.artifacts.slice(),
-    // Phase 3 (MASTER_DESIGN.md §10) — account-wide like kills/deaths/gear
-    // above, not per saved character, same simplification call those made
-    // (§11's original schema sketch was per-character; this matches what
-    // actually shipped for everything else in this row instead).
-    level: row.level || 1, xp: row.xp || 0
+    weaponTier: eq.weaponTier, armorTier: eq.armorTier, artifacts: eq.artifacts.slice()
   };
 }
 
@@ -186,8 +191,6 @@ function savePlayerStats(player){
     armorTier: player.armorTier || 0,
     artifacts: player.artifacts || []
   };
-  row.level = player.level || 1;
-  row.xp = player.xp || 0;
   row.lastSeenAt = Date.now();
   persist();
 }
@@ -270,11 +273,27 @@ function createCharacter(id, classKey, gender){
   if(acct.characters.length >= MAX_CHARACTERS) return { ok: false, reason: 'roster_full' };
   const character = {
     id: 'char_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-    classKey, gender: gender || null, createdAt: Date.now()
+    classKey, gender: gender || null, createdAt: Date.now(),
+    level: 1, xp: 0 // per-character, not account-wide — MASTER_DESIGN.md §10/Phase 3
   };
   acct.characters.push(character);
   persist();
   return { ok: true, character };
+}
+
+// Called by server.js's grantXp() on every XP grant (write-on-key-event,
+// same pattern as savePlayerStats/recordDungeonClear elsewhere in this
+// file) — per-character, deliberately not folded into savePlayerStats/the
+// account-wide `players` row. Level/xp live on the roster entry itself so
+// each of an account's up to 4 saved characters progresses independently.
+function saveCharacterProgress(accountId, characterId, level, xp){
+  const acct = state.accounts[accountId];
+  if(!acct) return;
+  const character = acct.characters.find(c => c.id === characterId);
+  if(!character) return;
+  character.level = level;
+  character.xp = xp;
+  persist();
 }
 
 function deleteCharacter(id, characterId){
@@ -307,5 +326,6 @@ function addFamilyCurrency(amount){
 module.exports = {
   touchOrCreatePlayer, loadPlayerStats, savePlayerStats,
   recordDungeonClear, getFamilyState, addFamilyCurrency,
-  verifyOrClaimPin, getCharacters, getCharacter, createCharacter, deleteCharacter
+  verifyOrClaimPin, getCharacters, getCharacter, createCharacter, deleteCharacter,
+  saveCharacterProgress
 };

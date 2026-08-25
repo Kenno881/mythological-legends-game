@@ -43,7 +43,7 @@ function renderRoster(){
     const div = document.createElement('div');
     div.className = 'class-card roster-card';
     div.innerHTML = `<h3>${c ? c.name : ch.classKey}</h3>
-      <p>${ch.gender ? ch.gender.charAt(0).toUpperCase() + ch.gender.slice(1) : 'Unspecified'}</p>
+      <p>${ch.gender ? ch.gender.charAt(0).toUpperCase() + ch.gender.slice(1) : 'Unspecified'} — Level ${ch.level || 1}</p>
       <button class="btn secondary roster-delete" type="button">Delete</button>`;
     div.addEventListener('click', (e)=>{
       if(e.target.classList.contains('roster-delete')) return; // handled separately below
@@ -139,6 +139,12 @@ let joinTimeoutId = null;
 function renderDungeonSelect(){
   dungeonSelectStatus.textContent = '';
   dungeonList.innerHTML = '';
+  // Level is per-character now (MASTER_DESIGN.md §10), not a single
+  // account-wide number — look up the character just chosen rather than a
+  // connect-time global, so the badge reflects whichever character is
+  // about to actually join.
+  const pendingChar = myCharacters.find(c => c.id === pendingCharacterId);
+  const myLevel = (pendingChar && pendingChar.level) || 1;
   DUNGEONS.forEach((d, idx)=>{
     const cleared = myDungeonsCleared.includes(d.name);
     const needsFamily = idx > 0 && !cleared;

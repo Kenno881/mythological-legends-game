@@ -118,7 +118,7 @@ function showLoot(text){
 }
 
 // ---------- HUD ----------
-let lastWeaponTier = 0, lastArmorTier = 0, lastArtifactCount = 0;
+let lastWeaponTier = 0, lastArmorTier = 0, lastArtifactCount = 0, lastLevel = 1;
 let lastHudWeaponTier = -1, lastHudArmorTier = -1; // -1 so the icons sync on the very first updateHud call
 function setCdVisual(id, remain, total){
   const el = document.getElementById(id);
@@ -172,8 +172,12 @@ function updateHud(s){
 
   const c = CLASSES[me.classKey];
   setCdVisual('cdSpecial1', me.cds.special1, c.special1 ? c.special1.cd : 1);
-  document.getElementById('btnSpecial2').classList.toggle('hidden', !c.special2);
-  if(c.special2) setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
+  // Locked-but-not-yet-learned (§10's unlockLevel) reads exactly like
+  // "this class doesn't have one" already did — same hidden button, no
+  // dead-button feel, no separate "locked" visual state to design.
+  const special2Learned = c.special2 && (!c.special2.unlockLevel || me.level >= c.special2.unlockLevel);
+  document.getElementById('btnSpecial2').classList.toggle('hidden', !special2Learned);
+  if(special2Learned) setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
 
   // Loot toast fires for whichever slot actually changed since the last
   // update — each checked independently since a boss kill can grant more
@@ -184,9 +188,17 @@ function updateHud(s){
     const newestId = me.artifacts[me.artifacts.length - 1];
     showLoot(`Found the ${ARTIFACTS[newestId].name}!`);
   }
+  // Ability-unlock toast — the boon-choice modal already announces a plain
+  // level-up, so this only needs to call out the ability itself, exactly
+  // on the update that crosses its unlockLevel threshold.
+  if(me.level > lastLevel && c.special2 && c.special2.unlockLevel
+     && lastLevel < c.special2.unlockLevel && me.level >= c.special2.unlockLevel){
+    showLoot(`New ability: ${c.special2.name}!`);
+  }
   lastWeaponTier = me.weaponTier;
   lastArmorTier = me.armorTier;
   lastArtifactCount = me.artifacts.length;
+  lastLevel = me.level;
 }
 
 // ---------- ROSTER ----------

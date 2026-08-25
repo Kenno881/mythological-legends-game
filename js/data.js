@@ -1,6 +1,14 @@
 "use strict";
 
 // ---------- DATA: CLASSES ----------
+// special2.unlockLevel (added 2026-08-25, reconciled onto Phase 3's
+// account-wide leveling+boons work — see MASTER_DESIGN.md §10) gates the
+// button behind a level requirement — server.js's doSpecial() and
+// js/render.js's HUD both check it the same way a class simply not having
+// special2 was already handled (hidden button, silent no-op). Squire and
+// Merlin's Apprentice didn't have a special2 at all before this — Second
+// Wind and Blink are new, not just newly-gated versions of something that
+// already existed.
 const CLASSES = {
   squire: {
     name: "Squire", tag: "Easy — great for young knights",
@@ -10,6 +18,11 @@ const CLASSES = {
     sprite: "assets/sprites/squire.png",
     attack:{dmg:14, range:34, cd:0.35},
     special1:{name:"Shield Bash", cd:7, dmg:10, radius:70, stun:1.4, cost:0},
+    // Self-target, no aim, no cost — same "hard to go wrong" shape as
+    // Shield Bash. A flat heal plus a brief damage-reduction shield, not a
+    // spell — keeps Squire's identity as the tanky one-button class even
+    // once he has two buttons.
+    special2:{name:"Second Wind", cd:12, heal:40, shield:0.5, shieldDur:2, cost:0, unlockLevel:3},
     hasMana:false
   },
   knight: {
@@ -20,7 +33,7 @@ const CLASSES = {
     sprite: "assets/sprites/knight.png",
     attack:{dmg:12, range:36, cd:0.4},
     special1:{name:"Parry", cd:6, block:0.65, dur:1.0, cost:0},
-    special2:{name:"Taunt", cd:9, radius:150, dur:4, cost:0},
+    special2:{name:"Taunt", cd:9, radius:150, dur:4, cost:0, unlockLevel:3},
     hasMana:false
   },
   apprentice: {
@@ -31,6 +44,11 @@ const CLASSES = {
     sprite: "assets/sprites/merlinsapprentice.png",
     attack:{dmg:11, range:280, cd:0.5, cost:8, projectile:true},
     special1:{name:"Arcane Nova", cd:5, dmg:26, radius:110, cost:35},
+    // Answers Apprentice's real weakness (75 HP, zero mobility) rather than
+    // being filler — an instant reposition away from whatever's closing the
+    // gap, reinforcing "keep your distance" as an actual playable habit
+    // instead of just flavor text.
+    special2:{name:"Blink", cd:10, dist:220, cost:25, unlockLevel:3},
     hasMana:true, maxMana:100, manaRegen:9
   },
   cleric: {
@@ -41,7 +59,7 @@ const CLASSES = {
     sprite: "assets/sprites/avaloncleric.png",
     attack:{dmg:8, range:40, cd:0.5},
     special1:{name:"Healing Light", cd:3, heal:32, cost:20},
-    special2:{name:"Blessing", cd:14, heal:22, buff:1.3, buffDur:8, cost:55},
+    special2:{name:"Blessing", cd:14, heal:22, buff:1.3, buffDur:8, cost:55, unlockLevel:3},
     hasMana:true, maxMana:100, manaRegen:8
   },
   enchanter: {
@@ -54,7 +72,7 @@ const CLASSES = {
     // Single-target hard CC — locks one non-boss enemy out of the fight
     // entirely until it's hit (breaks the mez) or the duration runs out.
     special1:{name:"Mesmerize", cd:8, dur:5, cost:30, range:260},
-    special2:{name:"Group Haste", cd:16, dur:10, mult:1.3, cost:45},
+    special2:{name:"Group Haste", cd:16, dur:10, mult:1.3, cost:45, unlockLevel:3},
     hasMana:true, maxMana:90, manaRegen:8
   }
 };
