@@ -189,6 +189,15 @@ function sendInput(keys, action){
   ws.send(JSON.stringify({ type: 'input', keys, action }));
 }
 
+// Picks one of the currently-offered boon-choice round's 3 options (server.js's
+// applyBoonChoice, MASTER_DESIGN.md §10) — ignored server-side if boonId
+// isn't actually one of the offered ones.
+function sendChooseBoon(boonId){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'chooseBoon', boonId }));
+  return true;
+}
+
 function myPlayer(){
   if(!latestState || !myId) return null;
   return latestState.players.find(p => p.id === myId) || null;

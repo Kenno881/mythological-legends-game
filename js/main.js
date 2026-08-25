@@ -398,6 +398,36 @@ document.getElementById('btnRestart').addEventListener('click', sendReturnToDung
 let lastWaitingForFamily = false;
 const fallenOverlay = document.getElementById('fallenOverlay');
 const reviveBar = document.getElementById('reviveBar');
+const boonOverlay = document.getElementById('boonOverlay');
+const boonCards = document.getElementById('boonCards');
+
+// Shows whichever boon-choice round is first in the queue (server.js can
+// queue more than one if a single kill's XP crossed two level thresholds at
+// once — see grantXp/offerBoonChoice). Rebuilds the 3 cards fresh only when
+// the actual offered set changes, not every state tick, so a click isn't
+// fighting a DOM rebuild racing it on the next 50ms tick.
+let lastShownBoonRound = null;
+function updateBoonOverlay(me){
+  const round = me && me.pendingBoonChoices && me.pendingBoonChoices[0];
+  if(!round){
+    boonOverlay.classList.add('hidden');
+    lastShownBoonRound = null;
+    return;
+  }
+  boonOverlay.classList.remove('hidden');
+  const key = round.join(',');
+  if(key === lastShownBoonRound) return;
+  lastShownBoonRound = key;
+  boonCards.innerHTML = '';
+  round.forEach(boonId=>{
+    const b = BOONS[boonId];
+    const card = document.createElement('div');
+    card.className = 'boon-card';
+    card.innerHTML = `<h4>${b.name}</h4><p>${b.description}</p>`;
+    card.addEventListener('click', ()=> sendChooseBoon(boonId));
+    boonCards.appendChild(card);
+  });
+}
 
 function onStateUpdate(s){
   // A state broadcast arriving at all is proof the join went through —
@@ -430,6 +460,8 @@ function onStateUpdate(s){
   } else {
     fallenOverlay.classList.add('hidden');
   }
+
+  updateBoonOverlay(me);
 }
 
 // ---------- LEAVE DUNGEON ----------

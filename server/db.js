@@ -157,11 +157,16 @@ function touchOrCreatePlayer(id, fallbackName){
 // this straight onto the runtime player (`...db.loadPlayerStats(id)`).
 function loadPlayerStats(id){
   const row = state.players[id];
-  if(!row) return { totalKills: 0, totalDeaths: 0, weaponTier: 0, armorTier: 0, artifacts: [] };
+  if(!row) return { totalKills: 0, totalDeaths: 0, weaponTier: 0, armorTier: 0, artifacts: [], level: 1, xp: 0 };
   const eq = row.equipment || { weaponTier: 0, armorTier: 0, artifacts: [] };
   return {
     totalKills: row.totalKills, totalDeaths: row.totalDeaths,
-    weaponTier: eq.weaponTier, armorTier: eq.armorTier, artifacts: eq.artifacts.slice()
+    weaponTier: eq.weaponTier, armorTier: eq.armorTier, artifacts: eq.artifacts.slice(),
+    // Phase 3 (MASTER_DESIGN.md §10) — account-wide like kills/deaths/gear
+    // above, not per saved character, same simplification call those made
+    // (§11's original schema sketch was per-character; this matches what
+    // actually shipped for everything else in this row instead).
+    level: row.level || 1, xp: row.xp || 0
   };
 }
 
@@ -181,6 +186,8 @@ function savePlayerStats(player){
     armorTier: player.armorTier || 0,
     artifacts: player.artifacts || []
   };
+  row.level = player.level || 1;
+  row.xp = player.xp || 0;
   row.lastSeenAt = Date.now();
   persist();
 }

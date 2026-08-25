@@ -89,6 +89,7 @@
       </div>
       <div style="text-align:right;">
         <div id="classLabel"></div>
+        <div id="levelLabel" class="level-label"></div>
         <div class="gear-row"><img id="weaponIcon" class="hidden" alt=""><span id="weaponLabelText">Iron Blade</span></div>
         <div class="gear-row"><img id="armorIcon" class="hidden" alt=""><span id="armorLabelText">Iron Mail</span></div>
         <div class="gear-row" id="artifactLabel"><span id="artifactLabelText">None yet</span></div>
@@ -99,6 +100,12 @@
     <div id="fallenOverlay" class="hidden">
       <div class="fallen-text">Fallen — a teammate needs to revive you</div>
       <div class="fallen-bar-wrap"><div class="fallen-bar" id="reviveBar"></div></div>
+    </div>
+    <!-- Boon choice (MASTER_DESIGN.md §10) — shown whenever this player has
+         an unresolved level-up offer waiting (js/main.js's updateBoonOverlay). -->
+    <div id="boonOverlay" class="hidden">
+      <div class="boon-title">Level Up! Choose a boon:</div>
+      <div id="boonCards" class="boon-cards"></div>
     </div>
     <div id="banner"></div>
     <div id="loot-toast"></div>

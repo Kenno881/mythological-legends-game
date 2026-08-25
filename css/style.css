@@ -113,6 +113,7 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .bar.mana{background:linear-gradient(90deg,#1f4a7a,#4090c9);}
 .bar.special{background:linear-gradient(90deg,#8a6a1a,var(--gold-bright));}
 #dungeonLabel{font-variant:small-caps;letter-spacing:1px;color:var(--gold-bright);}
+.level-label{font-size:11px;color:var(--parchment-dark);}
 #waveLabel{font-size:11px;color:var(--parchment-dark);margin-top:2px;}
 .gear-row{display:flex;align-items:center;justify-content:flex-end;gap:5px;font-size:12px;}
 .gear-row img{width:16px;height:16px;object-fit:contain;}
@@ -137,6 +138,21 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .fallen-text{font-variant:small-caps;letter-spacing:.5px;font-size:14px;margin-bottom:6px;}
 .fallen-bar-wrap{width:180px;height:8px;background:#000a;border-radius:4px;overflow:hidden;}
 .fallen-bar{height:100%;width:0;background:linear-gradient(90deg,#3a8a4a,#5ac26a);transition:width .1s linear;}
+
+/* Unlike fallenOverlay, this needs real clicks (pointer-events:auto) and
+   sits above the action buttons/HUD (z-index) since it's a modal choice for
+   the leveling player, not a passive status readout. */
+#boonOverlay{position:absolute;inset:0;z-index:30;pointer-events:auto;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  background:rgba(10,8,5,.85);text-align:center;padding:20px;}
+.boon-title{font-size:clamp(18px,4vw,26px);color:var(--gold-bright);
+  font-variant:small-caps;letter-spacing:1px;text-shadow:2px 2px 0 #000;}
+.boon-cards{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:600px;}
+.boon-card{background:var(--parchment);color:var(--ink);border:3px solid var(--wood);border-radius:8px;
+  padding:16px;cursor:pointer;text-align:left;width:160px;transition:transform .1s;}
+.boon-card:hover{transform:translateY(-3px);border-color:var(--gold-bright);}
+.boon-card h4{margin:0 0 6px 0;font-variant:small-caps;color:var(--burgundy);letter-spacing:.5px;}
+.boon-card p{margin:0;font-size:12px;line-height:1.35;}
 
 #roster{position:absolute;top:70px;right:14px;display:flex;flex-direction:column;gap:5px;
   pointer-events:none;width:150px;}

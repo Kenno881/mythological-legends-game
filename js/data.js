@@ -109,6 +109,28 @@ const ARTIFACTS = {
   }
 };
 
+// ---------- DATA: BOONS ----------
+// Phase 3's in-run choice moment (MASTER_DESIGN.md §10) — offered 3 at a
+// time on level-up, applied instantly, gone at the end of the run win or
+// lose. Generic (class-agnostic) rather than a bespoke pool per class for
+// this first pass — a real per-class pool is genuine content-design work of
+// its own, and §10a's eventual "8 skills, pick 4" plan is really the fuller
+// version of this same idea once it exists. Effect magnitudes are applied
+// in server.js's applyBoonChoice(); each stacks multiplicatively if the
+// same one comes up again on a later level-up this same run.
+const BOONS = {
+  ironWill: { name: "Iron Will", description: "+20% max HP, right now." },
+  keenEdge: { name: "Keen Edge", description: "+15% damage, for the rest of this run." },
+  swiftBoots: { name: "Swift Boots", description: "+12% move speed, for the rest of this run." }
+};
+
+// XP curve — a function, not a table, because both server.js (does the
+// actual leveling) and render.js (draws the "X/Y xp" progress text) need
+// the exact same formula; a plain data table would need is the same
+// duplication risk this file otherwise avoids by living in one place. First
+// cut, not validated by real family play — see MASTER_DESIGN.md §13.
+function xpToNextLevel(level){ return 60 + (level - 1) * 40; }
+
 // ---------- DATA: DUNGEONS ----------
 // Rooms are simple: each has enemy spawns; last room is the boss.
 const DUNGEONS = [
@@ -340,5 +362,5 @@ const REVIVE_CHANNEL_SECONDS = 4;
 // lives only in server.js, since this file ships to the browser as plain JS
 // and anyone can read it from page source.
 if(typeof module !== 'undefined' && module.exports){
-  module.exports = { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS };
+  module.exports = { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, BOONS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS, xpToNextLevel };
 }

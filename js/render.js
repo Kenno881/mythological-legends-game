@@ -158,6 +158,7 @@ function updateHud(s){
     if(sprite) iconEl.src = sprite;
   }
   document.getElementById('classLabel').textContent = CLASSES[me.classKey].name;
+  document.getElementById('levelLabel').textContent = `Lv ${me.level} · ${me.xp}/${xpToNextLevel(me.level)} xp`;
 
   // Wave/kill counter — only shown inside a wave encounter (js/data.js's
   // `wave: true` rooms, currently just Sherwood's Sunken Trail).

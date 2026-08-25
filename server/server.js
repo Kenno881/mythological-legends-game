@@ -91,7 +91,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS } = require('../js/data.js');
+const { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, BOONS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS, xpToNextLevel } = require('../js/data.js');
 const db = require('./db.js');
 
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
@@ -231,6 +231,85 @@ function partyScale(inst){
 const SOLO_DANGER_MULT = 1.6;
 function soloDangerMult(inst){
   return Object.keys(inst.players).length === 1 ? SOLO_DANGER_MULT : 1;
+}
+
+// ---------- LEVELING & BOONS (MASTER_DESIGN.md §10, Phase 3 first slice) ----------
+// Permanent XP/level (survives forever, via db.js — same account-wide,
+// not-per-saved-character shape kills/deaths/gear already use) plus
+// temporary in-run boons (gone on leave/die, §10's "relic or blessing for
+// the rest of this run" — a wipe counts as "die" here, see checkForWipe).
+// A player's derived combat stats stack from several independent sources —
+// class base, gear (existing), one-off artifacts (existing), and now
+// permanent level growth plus in-run boon picks. maxHp is recomputed from
+// the class base every time any of those changes, rather than repeatedly
+// multiplying an already-modified number in place — stacking percentage
+// multiplies directly onto maxHp over several level-ups/boon-picks in one
+// run would compound rounding drift; recomputing from scratch each time
+// can't.
+const LEVEL_STAT_BONUS_PER_LEVEL = 0.04; // +4% maxHp and +4% damage per level above 1 — first-cut, untuned
+function levelStatMult(level){ return 1 + Math.max(0, level - 1) * LEVEL_STAT_BONUS_PER_LEVEL; }
+
+function recomputeMaxHp(player){
+  const c = CLASSES[player.classKey];
+  const newMax = Math.round(c.hp * player.artifactHpMult * player.levelMult * player.boonHpMult);
+  player.hp += newMax - player.maxHp; // preserves current damage taken rather than healing to full
+  player.maxHp = newMax;
+}
+
+// XP per kill: `xpGear` already existed on every trash/mini-boss ENEMY_TYPES
+// entry (weight 0.15-0.4) but nothing ever read it — this is that field's
+// first actual use. Bosses don't carry xpGear, so they scale off the same
+// signal their currency reward already uses (rewardCurrency), keeping "how
+// special is this kill" defined in exactly one place per monster instead of
+// two separate, potentially-drifting numbers.
+const XP_PER_TRASH_WEIGHT = 40;
+function xpForKill(mon){
+  const t = ENEMY_TYPES[mon.type];
+  if(t.boss) return (t.rewardCurrency || 30) * 2;
+  return Math.round(XP_PER_TRASH_WEIGHT * (t.xpGear || 0.2));
+}
+
+// xpToNextLevel is shared from js/data.js (both this file and render.js's
+// "X/Y xp" HUD text need the exact same curve) — first-cut, not validated
+// by real family play, see §13. Shallow enough that a full dungeon clear (a
+// wave room alone can be 15-30+ kills) should realistically produce a
+// level-up or two, which matters here since that's also the only thing
+// that triggers a boon choice — a curve so steep nobody ever levels up
+// mid-run would quietly kill half of what this pass is meant to add.
+
+const BOON_IDS = Object.keys(BOONS);
+function offerBoonChoice(player){
+  const pool = BOON_IDS.slice();
+  const offered = [];
+  for(let i = 0; i < 3 && pool.length; i++){
+    offered.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  // A queue, not a single slot — a big enough XP grant (a boss kill against
+  // a low level) can cross more than one level-up threshold in one
+  // grantXp() call; queuing means a second one doesn't silently overwrite
+  // and lose the first still-unresolved offer.
+  player.pendingBoonChoices.push(offered);
+}
+
+function grantXp(player, amount){
+  if(!amount || player.dead) return; // a fallen player didn't land the kill that's crediting this
+  player.xp += amount;
+  while(player.xp >= xpToNextLevel(player.level)){
+    player.xp -= xpToNextLevel(player.level);
+    player.level++;
+    player.levelMult = levelStatMult(player.level);
+    recomputeMaxHp(player);
+    offerBoonChoice(player);
+  }
+}
+
+function applyBoonChoice(player, boonId){
+  const current = player.pendingBoonChoices[0];
+  if(!current || !current.includes(boonId)) return; // not the currently-offered round — stale/forged request, ignore
+  player.pendingBoonChoices.shift();
+  if(boonId === 'ironWill'){ player.boonHpMult *= 1.2; recomputeMaxHp(player); }
+  else if(boonId === 'keenEdge'){ player.boonDmgMult *= 1.15; }
+  else if(boonId === 'swiftBoots'){ player.boonSpeedMult *= 1.12; }
 }
 
 // One artifact per boss (js/data.js's ARTIFACTS, keyed by bossType) — used
@@ -650,18 +729,27 @@ function handleMessage(id, msg){
       // cooldown, the Green Knight's Girdle's once-per-run save, Mordred's
       // Broken Blade's once-per-room bonus. See damagePlayer()/doAttack().
       fordBucklerCd: 0, girdleUsedThisRun: false, brokenBladeUsedThisRoom: false,
+      // Permanent level growth (restored below) plus in-run boons (§10) —
+      // boon mults always start fresh at 1 here, never persisted, since a
+      // boon is gone the moment you leave or rejoin (see checkForWipe for
+      // the mid-run-wipe case, which clears them the same way).
+      level: 1, xp: 0, levelMult: 1, artifactHpMult: 1,
+      boonHpMult: 1, boonDmgMult: 1, boonSpeedMult: 1, pendingBoonChoices: [],
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
       // ever", not per-character session stats; see server/db.js).
       ...db.loadPlayerStats(id)
     };
-    // Static per-character artifact bonuses — applied once here since they
-    // don't change mid-run, rather than recomputed every tick.
+    // Static per-character bonuses — applied once here since they don't
+    // change mid-run, rather than recomputed every tick. levelMult/
+    // artifactHpMult feed recomputeMaxHp() (LEVELING & BOONS above), which
+    // handles the actual maxHp math from the class base — replaces the old
+    // one-off "multiply maxHp directly" beastHideMantle used to do, now
+    // that maxHp has more than one stacking source to account for.
     const newPlayer = inst.players[id];
-    if(newPlayer.artifacts.includes('beastHideMantle')){
-      newPlayer.maxHp = Math.round(newPlayer.maxHp * 1.1);
-      newPlayer.hp = newPlayer.maxHp;
-    }
+    newPlayer.levelMult = levelStatMult(newPlayer.level);
+    if(newPlayer.artifacts.includes('beastHideMantle')) newPlayer.artifactHpMult = 1.1;
+    recomputeMaxHp(newPlayer);
     if(newPlayer.artifacts.includes('gorlagonCrimsonSpur')){
       newPlayer.speed = Math.round(newPlayer.speed * 1.1);
     }
@@ -675,7 +763,18 @@ function handleMessage(id, msg){
   const instIdx = playerInstance.get(id);
   const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
   const player = inst ? inst.players[id] : undefined;
-  if(!player || player.dead) return;
+  if(!player) return;
+
+  // A fallen player can still resolve an already-offered boon choice — it's
+  // not a combat action, and there's no reason a level-up mid-fall (the kill
+  // that leveled you up isn't necessarily the one that felled you) should
+  // strand the choice until a teammate revives them.
+  if(msg.type === 'chooseBoon'){
+    applyBoonChoice(player, msg.boonId);
+    return;
+  }
+
+  if(player.dead) return;
   if(msg.type !== 'input') return;
 
   // {type:"input", keys:{up,down,left,right}, action:"special1"|"special2"|null}
@@ -745,7 +844,7 @@ function doAttack(inst, player, target){
   player.cds.attack = a.cd;
   if(a.cost) player.mana -= a.cost;
 
-  let dmgMult = WEAPON_TIERS[player.weaponTier].mult;
+  let dmgMult = WEAPON_TIERS[player.weaponTier].mult * player.levelMult * player.boonDmgMult;
   // Mordred's Broken Blade — +15% on the first attack against a fresh
   // room's enemies (loadRoom() resets brokenBladeUsedThisRoom), then
   // normal for the rest of the room.
@@ -839,7 +938,11 @@ function hitMonster(inst, mon, dmg, killerId){
     mon.alive = false;
     dropLoot(inst, mon);
     const killer = inst.players[killerId];
-    if(killer){ killer.totalKills++; db.savePlayerStats(killer); }
+    if(killer){
+      killer.totalKills++;
+      grantXp(killer, xpForKill(mon));
+      db.savePlayerStats(killer);
+    }
     inst.dungeonKillCount++; // feeds the post-dungeon summary screen, see onBossDefeated()
     if(inst.waveState) inst.waveState.killsSoFar++; // drives tickWaveSpawns()'s escalation
     if(mon.boss) onBossDefeated(inst, mon);
@@ -941,6 +1044,12 @@ function checkForWipe(inst){
     for(const id in inst.players){
       const p = inst.players[id];
       p.dead = false;
+      // A wipe is the "die" half of boons' "gone if you leave or die" (§10)
+      // — reset before recomputeMaxHp so ironWill's HP bump doesn't survive
+      // into the reset run.
+      p.boonHpMult = 1; p.boonDmgMult = 1; p.boonSpeedMult = 1;
+      p.pendingBoonChoices = [];
+      recomputeMaxHp(p);
       p.hp = p.maxHp;
       if(p.maxMana) p.mana = p.maxMana;
       p.reviveProgress = 0;
@@ -1284,8 +1393,8 @@ function tickPlayers(inst, dt){
     } else {
       const { mx, my } = movementVector(p.keys);
       if(mx !== 0 || my !== 0){
-        p.x += mx * p.speed * p.hasteMult * dt;
-        p.y += my * p.speed * p.hasteMult * dt;
+        p.x += mx * p.speed * p.hasteMult * p.boonSpeedMult * dt;
+        p.y += my * p.speed * p.hasteMult * p.boonSpeedMult * dt;
       }
     }
     p.x = Math.max(p.radius, Math.min(W - p.radius, p.x));

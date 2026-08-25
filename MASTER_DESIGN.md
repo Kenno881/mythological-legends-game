@@ -225,8 +225,16 @@ toward this, §9.
 - SQLite-shaped persistence (a JSON file, not actual SQL — see §11) on a
   Railway volume — lifetime kill/death counts and per-dungeon best times
   survive a restart, keyed by account id.
+- **Permanent leveling + in-run boons, first slice, 2026-08-25 (§10).** XP
+  from kills (both trash and bosses), permanent +4%/level HP+damage growth,
+  and a 3-boon generic pool offered on level-up. `level`/`xp` now actually
+  persist — the schema had these fields since launch but nothing wrote to
+  them until this pass.
 - Taunt as a hard target-override (not yet a full accumulating threat table).
 - Flat loot drop (35% per kill, 100% from bosses) — no rarity tiers yet.
+- **Co-op-required difficulty, first pass, 2026-08-25 (§1/§9).** A
+  solo-only incoming-damage multiplier so a lone player can genuinely fail
+  a dungeon, not just clear it slower — soft risk, not an entry block.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -242,7 +250,6 @@ toward this, §9.
 
 ### Not started (new direction)
 - The Wilds (horde mode).
-- In-run leveling + upgrade-card choices.
 - Currency/unlocks meta-progression — the persistence and account layer
   now exist (§12 Phase 2, done 2026-08-23), but nothing in-game earns
   currency or has anything to unlock yet.
@@ -710,7 +717,7 @@ and wasn't part of what this pass changed.
 
 ---
 
-## 10. Character Progression — Permanent Levels + Temporary Boons (New Direction, Planning Stage)
+## 10. Character Progression — Permanent Levels + Temporary Boons (First slice shipped 2026-08-25)
 
 **Decided: this is a persistent D&D-style campaign, not a roguelite.**
 Character level and gear are permanent and never reset between sessions —
@@ -729,10 +736,70 @@ permanent-character feel that's actually the point here.
 - **Temporary (per-run):** boons picked up mid-dungeon, offering the
   build-choice moment, cleared at the end of the run regardless of outcome.
 
-**Open questions:**
-- What actually grants permanent XP — boss kills, dungeon completion, both?
-- Boon pool size/rarity — should mirror the "sometimes it's something
-  special" feeling used for rare bosses (§9) and rare loot.
+**Shipped 2026-08-25 — first slice, both halves built together since
+leveling is what actually triggers a boon choice.** Answers the two open
+questions below directly:
+
+- **XP source: both boss kills and regular kills, not just dungeon
+  completion.** `js/data.js`'s `xpGear` field already existed on every
+  trash/mini-boss `ENEMY_TYPES` entry (weight 0.15-0.4) but nothing ever
+  read it — this is that field's first actual use
+  (`XP_PER_TRASH_WEIGHT * xpGear`, server.js's `xpForKill`). Bosses don't
+  carry `xpGear`; they scale off the same `rewardCurrency` signal their
+  currency payout already uses (×2), rather than inventing a second
+  "how special is this kill" number that could drift from the first.
+  Trash-only XP was deliberately rejected — with only 1-2 boss kills per
+  dungeon, XP that only came from bosses/completion would make mid-run
+  leveling (and therefore mid-run boon choices, the actual point of this
+  section) never realistically happen.
+- **Boon pool: 3 generic, class-agnostic boons for this first pass, not a
+  bespoke pool per class.** `js/data.js`'s `BOONS` — Iron Will (+20% max HP
+  now), Keen Edge (+15% damage this run), Swift Boots (+12% speed this
+  run). A real per-class pool (tied to §10a's eventual "8 skills, pick 4"
+  system) is genuine content-design work on its own; this proves the
+  mechanism end-to-end first. Offered 3-at-a-time on level-up
+  (`offerBoonChoice`); a single big XP grant crossing more than one level
+  threshold at once queues multiple choice-rounds rather than the second
+  silently overwriting the first (`pendingBoonChoices`, a queue not a
+  single slot) — confirmed live, a boss-kill-sized XP grant against a
+  level-1 test character queued two rounds correctly.
+- **Level growth:** +4% max HP and +4% damage per level above 1
+  (`LEVEL_STAT_BONUS_PER_LEVEL`), applied via `recomputeMaxHp()` /
+  `player.levelMult` — recomputed from the class base every time (join,
+  level-up, or boon pick) rather than repeatedly multiplying an
+  already-modified number in place, so stacking several changes in one run
+  can't compound rounding drift.
+- **Boons are gone on leave or die, per the spec above — a wipe counts as
+  "die."** `checkForWipe`'s reset resets `boonHpMult`/`boonDmgMult`/
+  `boonSpeedMult` to 1 and clears any still-pending choice queue. Surviving
+  a fall-and-revive mid-run is NOT "die" here — boons persist through that,
+  since the whole point of revive is staying in the run, not restarting it.
+- **Persistence:** `level`/`xp` were always in `db.js`'s schema (§11) but
+  never written to — wired now, account-wide like kills/deaths/gear (not
+  per saved character; §11's original schema sketch was per-character,
+  this matches what everything else in that row actually shipped as
+  instead).
+- **HUD:** class label gained a `Lv N · X/Y xp` line (`js/render.js`). No
+  XP progress *bar* yet — text only, kept deliberately small for this pass.
+- **Confirmed live** (temporarily lowered `xpToNextLevel` to trigger a fast
+  test, reverted before commit): a real kill streak took a level-1 test
+  character to level 3, queued two boon-choice rounds, both resolved
+  correctly via actual clicks — `boonSpeedMult`/`boonHpMult` landed exactly
+  as expected, and picking Iron Will bumped maxHp from 140→168 while
+  preserving the exact amount of damage already taken (hp gained precisely
+  the same +28 delta as maxHp, not a heal-to-full).
+
+**Open questions (unchanged from before this pass, still genuinely open):**
+- Whether the numbers are actually well-tuned — the curve
+  (`xpToNextLevel`), `XP_PER_TRASH_WEIGHT`, `LEVEL_STAT_BONUS_PER_LEVEL`,
+  and each boon's magnitude are all first-cut guesses, not validated by a
+  real family session. Same caveat as §9's solo-danger multiplier and
+  party-scaling numbers — everything numeric shipped this session needs a
+  real playtest before it's trustworthy.
+- Whether a level cap should exist eventually — none is enforced yet.
+- Expanding the boon pool past 3, and whether it should ever go per-class.
+- Boon "rarity" (the original open question's "should mirror the rare-boss
+  feeling") — not built; all 3 current boons are equally likely.
 
 ---
 
@@ -868,7 +935,8 @@ as-is regardless of the run-model change)*
       dungeon's cleared once, the full-party requirement drops for good,
       solo included)*
 - [ ] Admin flag on Ken's account, gating a direct level-set action for
-      catch-up *(deferred — nothing to level yet, Phase 3 isn't built)*
+      catch-up *(deferred — leveling exists now (§10, 2026-08-25) but the
+      admin UI/action to directly set one wasn't part of that pass)*
 - [x] Remember the connection passphrase client-side too, alongside the
       logged-in account, so kids aren't retyping either credential each
       session
@@ -885,9 +953,13 @@ as-is regardless of the run-model change)*
       2026-08-23, see §3)*
 
 **Phase 3 — Permanent leveling + in-run boons**
-- [ ] Permanent XP/level system (never resets)
-- [ ] Temporary in-dungeon boon pool per class
-- [ ] Boon-choice UI (client)
+- [x] Permanent XP/level system (never resets) *(first slice done
+      2026-08-25 — see §10. XP from both regular and boss kills,
+      account-wide persistence, +4%/level HP+damage growth)*
+- [x] Temporary in-dungeon boon pool *(first slice done 2026-08-25 — 3
+      generic boons, not yet per-class; see §10)*
+- [x] Boon-choice UI (client) *(done 2026-08-25 — a modal overlay of up to
+      3 cards on level-up, `js/main.js`'s `updateBoonOverlay`)*
 
 **Phase 4 — Dungeon run rework**
 - [x] Auto-attack + target-lock as the shared input model *(done
@@ -1042,3 +1114,13 @@ as-is regardless of the run-model change)*
   implementation pass: a solo-only incoming-damage multiplier
   (`SOLO_DANGER_MULT`, §9) — soft risk, not a hard entry block; genuinely
   untested against a real solo family run, may need retuning.
+- Permanent leveling + in-run boons (§10, Phase 3), first slice shipped
+  2026-08-25: XP from both regular and boss kills (not completion-only —
+  needed for mid-run level-ups to actually happen, which is what triggers a
+  boon choice); +4%/level permanent HP+damage growth; 3 generic
+  (class-agnostic, not per-class yet) boons offered on level-up, queued
+  rather than overwritten if a big XP grant crosses two level thresholds at
+  once. Confirmed live end-to-end including the multi-level-up queue case
+  and the HP-boon's exact-delta math. All the actual numbers (XP curve,
+  per-kill weights, level growth rate, boon magnitudes) are first-cut
+  guesses, not validated by real family play.
