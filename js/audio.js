@@ -29,6 +29,7 @@ function ensureAudioCtx(){
 function unlockAudioOnce(){
   const ctx = ensureAudioCtx();
   if(ctx && ctx.state === 'suspended') ctx.resume();
+  startMusic();
   window.removeEventListener('pointerdown', unlockAudioOnce);
   window.removeEventListener('keydown', unlockAudioOnce);
 }
@@ -144,6 +145,130 @@ function sfxDefeat(){
   [392, 349.23, 293.66, 261.63].forEach((f, i)=>
     tone(f, { type: 'sine', dur: 0.6, gain: 0.28, delay: i * 0.2 }));
 }
+
+// ---------- BACKGROUND MUSIC ----------
+// A small generative ambient loop, not a fixed recorded/composed clip — same
+// "no external assets" constraint as the SFX above, and it means the score
+// never repeats note-for-note the way one short looping bar would over a
+// real 15-30 minute family session. D Dorian keeps it sounding old and
+// heroic without tipping into a sad minor key — the same folk-fantasy mode
+// a lot of real medieval-flavored music leans on. Runs on its own gain node
+// (not routed through masterGain, which is the SFX bed) so a future
+// music-only volume/mute control is a one-line addition, and so combat SFX
+// always cuts through clearly over it rather than competing for the same
+// headroom. Starts on the same first-gesture unlock the SFX context already
+// waits for (browsers refuse to start any audio before one), plays
+// continuously from the title screen onward — one score for the whole
+// session rather than per-screen tracks, which would need state tracking
+// this doesn't otherwise have any reason to carry.
+let musicGain = null;
+let musicStarted = false;
+let musicSchedulerTimer = null;
+
+const MUSIC_GAIN_LEVEL = 0.55; // the single knob to turn if it's too loud/quiet against SFX
+const MUSIC_BPM = 88; // unhurried — ambient bed, not something to march to
+const SEC_PER_BEAT = 60 / MUSIC_BPM;
+const MUSIC_SCALE = [293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]; // D4 Dorian, one octave
+const MUSIC_ROOT = 146.83; // D3 — an octave below the melody line
+
+let musicNextNoteTime = 0;
+let musicBeatCount = 0;
+let musicLastMelodyIdx = null;
+
+function scheduleDrone(t0, dur){
+  const ctx = ensureAudioCtx();
+  [{ freq: MUSIC_ROOT, peak: 0.06 }, { freq: MUSIC_ROOT * 3 / 2, peak: 0.04 }].forEach(({ freq, peak })=>{
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 1.4);
+    g.gain.setTargetAtTime(0.0001, t0 + dur - 1.4, 0.7);
+    osc.connect(g); g.connect(musicGain);
+    osc.start(t0); osc.stop(t0 + dur + 0.4);
+  });
+}
+
+function scheduleBassPulse(t0){
+  const ctx = ensureAudioCtx();
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = MUSIC_ROOT;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.1, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + SEC_PER_BEAT * 0.9);
+  osc.connect(g); g.connect(musicGain);
+  osc.start(t0); osc.stop(t0 + SEC_PER_BEAT);
+}
+
+// A weighted random walk across the scale, not a fixed melody — small steps
+// most of the time (reads as intentional phrasing), an occasional bigger
+// leap so it doesn't feel like it's just idling on two adjacent notes.
+function nextMelodyIdx(prevIdx){
+  if(prevIdx === null) return Math.floor(MUSIC_SCALE.length / 2);
+  const bigLeap = Math.random() < 0.3;
+  const step = (Math.random() < 0.5 ? -1 : 1) * (bigLeap ? 2 : 1);
+  return Math.max(0, Math.min(MUSIC_SCALE.length - 1, prevIdx + step));
+}
+
+function scheduleMelodyNote(t0){
+  // Skipped more often than not — the gaps are what make this read as an
+  // ambient bed instead of a busy tune fighting combat SFX for attention.
+  if(Math.random() < 0.4) return;
+  musicLastMelodyIdx = nextMelodyIdx(musicLastMelodyIdx);
+  const ctx = ensureAudioCtx();
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = MUSIC_SCALE[musicLastMelodyIdx];
+  const dur = SEC_PER_BEAT * (Math.random() < 0.3 ? 2 : 1);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.08, t0 + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(musicGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+}
+
+// Standard Web Audio "look-ahead scheduler" pattern: a coarse setInterval
+// tick just checks whether it's time to queue up the next beat's notes,
+// with the actual note start times set precisely against audioCtx.currentTime
+// — scheduling on the interval's own firing time directly would drift under
+// tab-throttling the way a plain setInterval-driven note trigger would.
+function musicSchedulerTick(){
+  const ctx = ensureAudioCtx();
+  if(!ctx) return;
+  const lookahead = 0.15;
+  while(musicNextNoteTime < ctx.currentTime + lookahead){
+    if(musicBeatCount % 8 === 0) scheduleDrone(musicNextNoteTime, SEC_PER_BEAT * 8);
+    if(musicBeatCount % 2 === 0) scheduleBassPulse(musicNextNoteTime);
+    scheduleMelodyNote(musicNextNoteTime + SEC_PER_BEAT * 0.15);
+    musicNextNoteTime += SEC_PER_BEAT;
+    musicBeatCount++;
+  }
+}
+
+function startMusic(){
+  const ctx = ensureAudioCtx();
+  if(!ctx || musicStarted) return;
+  musicStarted = true;
+  musicGain = ctx.createGain();
+  musicGain.gain.value = MUSIC_GAIN_LEVEL;
+  musicGain.connect(ctx.destination);
+  musicNextNoteTime = ctx.currentTime + 0.1;
+  musicBeatCount = 0;
+  musicSchedulerTimer = setInterval(musicSchedulerTick, 100);
+}
+
+// Duck to silent (not stop/restart — that would need re-deriving the beat
+// schedule) whenever the tab isn't visible, so a backgrounded or
+// screen-locked tablet isn't quietly running music nobody can hear.
+document.addEventListener('visibilitychange', ()=>{
+  if(!musicGain) return;
+  const ctx = ensureAudioCtx();
+  musicGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL, ctx.currentTime, 0.3);
+});
 
 // ---------- STATE DIFFING ----------
 // Each map is fully rebuilt every call from the current snapshot, so ids

@@ -30,6 +30,15 @@ than needing a second game mode maintained in parallel.
 This feeds a **persistent meta-progression layer** *(planned)* so runs matter
 beyond the session they happen in.
 
+**Clarified 2026-08-25 — a co-op dungeon crawler that needs a group, not a
+solo-viable horde mode.** The Vampire Survivors comparison above is about
+the *encounter shape* (auto-attack, continuous escalating spawns, run-based
+boss triggers) — it isn't a claim that solo should play like a VS run, where
+one person is the whole intended audience. A dungeon should be realistically
+completable by 2 players, but not really by 1: cooperation is the point, not
+an optional multiplier on top of a solo-first design. First difficulty pass
+toward this, §9.
+
 ---
 
 ## 2. Design Pillars
@@ -202,6 +211,17 @@ beyond the session they happen in.
   without art — nothing breaks mid-rollout.
 - Synthesized sound (Web Audio API, no external assets) — hits, ability
   casts, boss slam telegraph, victory/defeat stingers (`js/audio.js`).
+- **Background music, 2026-08-25.** A small generative ambient loop, not a
+  fixed clip — same no-external-assets constraint as the SFX, and it means
+  nothing repeats note-for-note over a real 15-30 minute session. D Dorian
+  (heroic, not sad-minor); drone + bass pulse + a weighted-random-walk
+  melody line, all scheduled with a standard Web Audio look-ahead scheduler.
+  Runs on its own gain node, independent of the SFX `masterGain`, so combat
+  hits stay clearly audible over it. Starts on the same first-gesture unlock
+  the SFX context already required; ducks to silent (not stopped — avoids
+  re-deriving the beat schedule) whenever the tab is hidden. One continuous
+  score for the whole session, not per-screen tracks. No mute/volume UI yet
+  — `MUSIC_GAIN_LEVEL` in `js/audio.js` is the one knob if it's too loud.
 - SQLite-shaped persistence (a JSON file, not actual SQL — see §11) on a
   Railway volume — lifetime kill/death counts and per-dungeon best times
   survive a restart, keyed by account id.
@@ -646,7 +666,30 @@ connected left standing, the dungeon wipes: a short beat, then everyone
 resets to that dungeon's safe room at full HP. A real fail state, not
 just an inconvenience, without being a hard account/character reset.
 
+**Cooperation requirement — first pass, 2026-08-25 (§1's clarification).**
+Solo already had no revive safety net (above — nobody's left to walk over
+and revive a lone fallen player), but that only bites if a lone player is
+actually likely to take a real hit, and baseline monster damage was tuned
+around parties big enough to revive each other — confirmed live, a solo
+playtest "cleared Sherwood without much trouble" (§3). `server.js`'s new
+`SOLO_DANGER_MULT` (1.6x) multiplies incoming damage only at exactly 1
+player, applied once in `damagePlayer()` so every damage source (basic
+attacks, slams, charges) picks it up automatically; 2-4 players are
+untouched, same as `partyScale()`'s existing choice to scale HP/quota (not
+damage) for group play. **Soft risk, not a hard block** — a lone player can
+still attempt and can still get lucky, matching Pillar 5's "losing
+occasionally is part of the fun, not a wall" stance rather than flatly
+disallowing solo entry (which would also contradict Sherwood's existing
+"always opens, solo or any subset" decision, §8a). 1.6x is a first-cut
+number, not validated by an actual solo family playtest — retune if a solo
+run still feels too safe, or too punishing, once someone's actually tried
+it. Untouched by this: dungeon *entry* — the family-presence gate on an
+uncleared dungeon (§8a) is a separate lever from in-dungeon survivability,
+and wasn't part of what this pass changed.
+
 **Open questions:**
+- Whether the 1.6x solo multiplier is actually well-tuned — needs a real
+  solo run to judge, same caveat as the party-scaling numbers above.
 - Exact level thresholds per dungeon (§5).
 - Whether a wipe should ever cost something beyond lost time (a death
   counter, a run-time penalty) — currently a wipe is "try the same
@@ -992,3 +1035,10 @@ as-is regardless of the run-model change)*
   not just in-memory; boss kills grant exactly the right artifact;
   Ford-Warden's Buckler's block-then-cooldown behaves exactly as designed
   (decided and shipped 2026-08-24).
+- This is a co-op dungeon crawler that needs a group, not a solo-viable
+  horde mode — the Vampire Survivors framing (§1) describes the encounter
+  shape only, not solo-first design intent. A dungeon should be realistically
+  completable by 2, not really by 1 (§1/§9, decided 2026-08-25). First
+  implementation pass: a solo-only incoming-damage multiplier
+  (`SOLO_DANGER_MULT`, §9) — soft risk, not a hard entry block; genuinely
+  untested against a real solo family run, may need retuning.

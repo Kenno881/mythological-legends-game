@@ -213,6 +213,26 @@ function partyScale(inst){
   return 1 + (n - 1) * 0.35;
 }
 
+// Design call (2026-08-25): this is a co-op dungeon crawl that NEEDS a group,
+// not a solo-viable horde mode — a dungeon should be realistically
+// completable by 2, but not really by 1. Solo already has zero revive safety
+// net (damagePlayer/checkForWipe below — nobody's left to walk over and
+// revive a fallen lone player), but that only bites if a lone player is
+// actually likely to take a real hit in the first place. Baseline monster
+// damage was tuned around parties big enough to revive each other, so solo
+// rarely felt at risk at all — confirmed live, see MASTER_DESIGN.md §3
+// ("Solo ... cleared Sherwood without much trouble"). This multiplies
+// incoming damage only at exactly 1 player; 2-4 players are untouched,
+// same as partyScale()'s existing choice to scale HP/quota (not damage) for
+// group play. Soft risk, not a hard block — matches Pillar 5's existing
+// "losing occasionally is part of the fun, not a wall" stance rather than
+// flatly disallowing solo play. 1.6x is a first-cut guess, not validated by
+// an actual solo family playtest — retune if it's wrong, see §9/§13.
+const SOLO_DANGER_MULT = 1.6;
+function soloDangerMult(inst){
+  return Object.keys(inst.players).length === 1 ? SOLO_DANGER_MULT : 1;
+}
+
 // One artifact per boss (js/data.js's ARTIFACTS, keyed by bossType) — used
 // by dropLoot() to know which artifact a boss kill grants. Built once,
 // not per-lookup, since ARTIFACTS never changes at runtime.
@@ -873,6 +893,7 @@ function dropLoot(inst, mon){
 // hit doesn't still stun.
 function damagePlayer(inst, player, dmg){
   if(player.spawnProtection > 0) return false;
+  dmg *= soloDangerMult(inst);
 
   // Ford-Warden's Buckler — already below 25% HP and its 20s cooldown is
   // ready: block this hit entirely rather than reduce it. Checked before
