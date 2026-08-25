@@ -376,12 +376,18 @@ const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.png': 'image/png'
+  '.png': 'image/png',
+  '.json': 'application/manifest+json; charset=utf-8'
 };
 
 function resolveStaticFile(urlPath){
   if(urlPath === '/' || urlPath === '/camelot-crawler.html'){
     return path.join(CLIENT_ROOT, 'camelot-crawler.html');
+  }
+  // Service worker must be served from root (not under /js/) so its default
+  // scope covers the whole app, matching manifest.json's "scope": "/".
+  if(urlPath === '/manifest.json' || urlPath === '/service-worker.js'){
+    return path.join(CLIENT_ROOT, urlPath.slice(1));
   }
   for(const prefix in STATIC_DIRS){
     if(!urlPath.startsWith(prefix)) continue;
