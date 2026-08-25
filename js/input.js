@@ -49,17 +49,29 @@ window.addEventListener('keyup', e=>{
 // The protocol only carries discrete up/down/left/right, so the analog
 // stick vector is thresholded into directions (up to two, for diagonals)
 // instead of carrying a magnitude.
+//
+// Tracks one specific touch by identifier rather than grabbing e.touches[0] —
+// on a tablet the player routinely has a second finger down on an ability
+// button at the same time (two-thumb play, way more natural with a tablet's
+// extra screen room than on a phone). e.touches[0] is whichever touch
+// currently has the lowest index across the WHOLE screen, not necessarily
+// this one, so the stick could silently start reading the button-thumb's
+// position instead of its own the moment a second finger touched down.
 const STICK_DEADZONE = 0.3;
-let stickActive = false;
+let stickTouchId = null;
 const stickZone = document.getElementById('stickZone');
 const stickNub = document.getElementById('stickNub');
 
-function stickHandler(e){
-  e.preventDefault();
-  const t = e.touches ? e.touches[0] : e;
+function findTouch(touchList, id){
+  for(let i = 0; i < touchList.length; i++){
+    if(touchList[i].identifier === id) return touchList[i];
+  }
+  return null;
+}
+function moveStickTo(clientX, clientY){
   const rect = stickZone.getBoundingClientRect();
-  let dx = t.clientX - (rect.left + rect.width / 2);
-  let dy = t.clientY - (rect.top + rect.height / 2);
+  let dx = clientX - (rect.left + rect.width / 2);
+  let dy = clientY - (rect.top + rect.height / 2);
   const max = 40;
   const dist = Math.min(Math.hypot(dx, dy), max);
   const ang = Math.atan2(dy, dx);
@@ -74,13 +86,28 @@ function stickHandler(e){
   touchKeys.down = ny > STICK_DEADZONE;
 }
 function stickReset(){
-  stickActive = false;
+  stickTouchId = null;
   touchKeys.up = touchKeys.down = touchKeys.left = touchKeys.right = false;
   stickNub.style.left = '38px'; stickNub.style.top = '38px';
 }
-stickZone.addEventListener('touchstart', e=>{ stickActive = true; stickHandler(e); });
-stickZone.addEventListener('touchmove', e=>{ if(stickActive) stickHandler(e); });
-stickZone.addEventListener('touchend', stickReset);
+stickZone.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  if(stickTouchId !== null) return; // already tracking a finger — ignore a second one landing here
+  const t = e.changedTouches[0];
+  stickTouchId = t.identifier;
+  moveStickTo(t.clientX, t.clientY);
+});
+stickZone.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  if(stickTouchId === null) return;
+  const t = findTouch(e.touches, stickTouchId);
+  if(t) moveStickTo(t.clientX, t.clientY);
+});
+function stickTouchEnd(e){
+  if(stickTouchId !== null && findTouch(e.changedTouches, stickTouchId)) stickReset();
+}
+stickZone.addEventListener('touchend', stickTouchEnd);
+stickZone.addEventListener('touchcancel', stickTouchEnd);
 
 // ---------- ACTION BUTTONS ----------
 // Basic attack is automatic now (server.js's tickAutoAttack) — no button
