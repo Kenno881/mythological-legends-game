@@ -328,6 +328,15 @@ function draw(s){
   ctx.fillRect(0, 0, W, 24); ctx.fillRect(0, H - 16, W, 16);
   ctx.fillRect(0, 0, 16, H); ctx.fillRect(W - 16, 0, 16, H);
 
+  // Interior walls (MASTER_DESIGN.md §9, 2026-08-25) — real room geometry
+  // (js/data.js's per-room `walls`) instead of one open rectangle. Same
+  // color/read as the border so a carved-up room still feels like the same
+  // stone, not a different material bolted on.
+  const roomForWalls = currentRoomData(s);
+  if(roomForWalls && roomForWalls.walls){
+    roomForWalls.walls.forEach(w => ctx.fillRect(w.x, w.y, w.w, w.h));
+  }
+
   // Exit gates — a pulsing circle of light the party walks into to advance.
   // Shared by the safe room's single exit and the branch fork's two/one
   // gates, just with different colors/labels.

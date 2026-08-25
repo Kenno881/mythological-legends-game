@@ -235,6 +235,15 @@ toward this, §9.
 - **Co-op-required difficulty, first pass, 2026-08-25 (§1/§9).** A
   solo-only incoming-damage multiplier so a lone player can genuinely fail
   a dungeon, not just clear it slower — soft risk, not an entry block.
+- **Level-gated dungeon unlocks + per-dungeon XP caps, 2026-08-25 (§5).**
+  A dungeon requires a minimum character level to join at all; each also
+  caps how much XP is earnable while farming it, so the easy first dungeon
+  can't be grinded into permanently out-leveling the rest of the campaign.
+- **Real wall-collision exploration, 2026-08-25 (§9).** Rooms could carry
+  zero interior geometry before this — Sherwood's room 1 is now reshaped
+  into "Forest Crossroads," 3 real corridors off a hub instead of two exit
+  gates floating in one open field. The collision primitive itself is
+  reusable by any room going forward, not bespoke to this one.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -247,6 +256,10 @@ toward this, §9.
   system generally, just the guaranteed-vs-35%-chance drop rule.
 - Threat is "nearest player, unless taunted" — no accumulating threat table,
   so healing doesn't pull aggro the way it would on a real threat system.
+- Monsters don't path around walls (§9's new wall-collision system) — still
+  simple move-toward-target. Fine for room 1's current layout (enemies are
+  placed so it doesn't matter), but a room whose walls are meant to matter
+  tactically, not just navigationally, would need real pathfinding.
 
 ### Not started (new direction)
 - The Wilds (horde mode).
@@ -675,6 +688,45 @@ to the other 3 dungeons is unstarted. **This is optional extra risk a
 player chooses, not the mandatory wipe condition Pillar 5 below is
 actually asking for** — the main path is exactly as failure-free as it
 always was.
+
+**Real wall-collision exploration, shipped 2026-08-25 — room 1 reshaped
+into "Forest Crossroads."** Rooms had zero interior geometry before this —
+an open rectangle with monsters and exit-gate circles, the two branch
+gates just floating near each other on the right edge rather than reading
+as genuinely different directions. Added the actual missing piece: a
+`walls` array per room (`js/data.js`, simple axis-aligned rectangles) plus
+a real collision primitive (`server.js`'s `moveWithWalls`/`circleHitsRect`)
+— X and Y resolved as separate moves so a player slides along a wall
+instead of snapping to a dead stop, the standard trick for this. Not
+bespoke to one room: any room can carry `walls` from here on. Room 1's
+hub (left third, unwalled) now opens into 3 real lanes carved by two
+horizontal dividers — top lane to the Ambush Hollow fork (still the same
+fight, just reached by actually walking a different corridor instead of
+picking from two adjacent dots), middle lane onward, and a new bottom lane
+to an unguarded secret nook holding a guaranteed loot token (reuses the
+existing floor-pickup system — `secretNook` triggers one `pushGearLoot`
+call the moment the hub clears, no new mechanic). Branch gate positions
+became per-room-overridable too (`exits` field, `mainExitFor`/
+`sideExitFor`/`returnExitFor` in server.js) rather than fixed shared
+constants, since a spatial layout needs its gates to actually sit where
+the corridors lead — every other branch room not yet reshaped this way
+still falls back to the original shared positions, unaffected.
+**Confirmed live, thoroughly:** walking straight from the hub into the
+middle lane correctly stopped dead at the dividing wall (couldn't cut
+through into the top lane); routing back through the hub and up the top
+lane correctly reached the Ambush Hollow gate and triggered the side
+chamber; the secret nook's loot token appeared exactly where placed the
+moment the hub cleared. Also incidentally re-confirmed today's earlier
+solo-danger-multiplier pass is doing its job — the same test character
+solo'd into the Ambush Hollow's 2-dark-knight fight and wiped, exactly the
+kind of real risk that pass was for. **Known gap, not addressed here:**
+monsters don't path around walls (still simple move-toward-target) — room
+1's enemies are placed so this doesn't matter for its layout, but a future
+room whose walls are meant to matter tactically (monsters having to path
+around, not just players) would need real pathfinding, not just
+collision. Still just this one room (§12's "prove it on one thing first"
+pattern) — extending real wall geometry to other rooms/dungeons is
+unstarted.
 
 **Escalating spawn tables — first slice shipped 2026-08-24, Sherwood
 only.** Resolves the "primary escalation driver" open question below:
@@ -1159,3 +1211,14 @@ as-is regardless of the run-model change)*
   temporarily capping Sherwood at that same level confirmed further real
   kills granted exactly 0 XP. First-cut numbers, not validated by real
   family play — see §5's table.
+- Rooms can now carry real interior wall geometry (§9), not just an open
+  rectangle — Sherwood's room 1 reshaped into "Forest Crossroads" as the
+  proof, 3 corridors off a hub instead of two exit gates floating together
+  in one field (decided and shipped 2026-08-25). The collision primitive
+  (server.js's moveWithWalls/circleHitsRect) is generic, usable by any
+  room from here on, not bespoke to this one. Confirmed live: blocked
+  correctly at a dividing wall, routable via the hub, side-chamber gate
+  and secret-nook loot both triggered exactly where placed. Known
+  limitation: monsters don't path around walls yet, still simple
+  move-toward-target — fine for this room's layout, would need real
+  pathfinding for a room where that matters tactically.

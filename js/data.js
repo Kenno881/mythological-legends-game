@@ -161,24 +161,35 @@ const DUNGEONS = [
     },
     rooms: [
       { safe: true, enemies: [] },
-      // Forest Path — forks into the Ambush Hollow (branch: true below).
-      // Tougher than this room's own bandit trio (two dark knights, not
-      // one, plus a bandit) in exchange for a guaranteed drop instead of
-      // the usual trash-kill chance — see server.js's dropLoot()/
-      // TRASH_GEAR_DROP_CHANCE.
+      // Forest Crossroads (reshaped 2026-08-25, MASTER_DESIGN.md §9 — real
+      // wall-carved exploration instead of two gates floating side by side
+      // in an open field). Clear the hub trio, then the room's actual
+      // layout gives 3 real directions instead of a menu: a top lane to the
+      // Ambush Hollow fork, a middle lane onward, and a bottom lane to an
+      // unguarded secret nook — reward is finding it, not fighting for it.
+      // `walls` carves 2 horizontal dividers spanning the room's right
+      // two-thirds; the hub (left third) stays open into all 3 lanes at
+      // once, so which one you commit to is an actual choice made by
+      // walking, not a click.
       { branch: true,
-        loreText: "Bandit tracks crisscross the muddy road — they're closer to Camelot than anyone realized.",
+        loreText: "Bandit tracks crisscross the muddy road, forking three ways ahead — they're closer to Camelot than anyone realized.",
+        walls: [
+          { x: 300, y: 212, w: 684, h: 24 },
+          { x: 300, y: 514, w: 684, h: 24 }
+        ],
+        exits: { main: { x: 900, y: 375, r: 45 }, side: { x: 900, y: 120, r: 45 } },
+        secretNook: { x: 900, y: 630 },
         sideChamber: {
           name: "The Ambush Hollow",
           warningText: "A harder road — tougher foes wait, but the loot is worth it.",
           enemies: [
-            {type:"darkKnight", x:450, y:220}, {type:"darkKnight", x:620, y:420},
+            {type:"darkKnight", x:450, y:260}, {type:"darkKnight", x:620, y:420},
             {type:"bandit", x:350, y:480}
           ]
         },
         enemies: [
-          {type:"bandit", x:420, y:200}, {type:"bandit", x:600, y:400},
-          {type:"bandit", x:300, y:500}
+          {type:"bandit", x:220, y:150}, {type:"bandit", x:220, y:600},
+          {type:"bandit", x:260, y:375}
         ]},
       // Old Watchtower — a second fork. Main path is a modest fixed fight;
       // the side chamber (Poacher's Den) is guarded by a real mini-boss

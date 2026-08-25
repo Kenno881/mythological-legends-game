@@ -435,8 +435,43 @@ const BRANCH_MAIN_EXIT = { x: W - 100, y: H / 2 - 90, r: 45 };
 const BRANCH_SIDE_EXIT = { x: W - 100, y: H / 2 + 90, r: 45 };
 const BRANCH_RETURN_EXIT = { x: W - 100, y: H / 2, r: 45 };
 
+// A room can override where its gates actually sit (js/data.js's `exits`,
+// 2026-08-25) — added for real spatial layouts (walls carving a room into
+// distinct lanes/corridors, MASTER_DESIGN.md §9) where "both gates float
+// near each other on the right edge" no longer reads as two genuinely
+// different directions. Falls back to the original shared constants above
+// for every branch room that hasn't been reshaped this way yet.
+function mainExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.main) || BRANCH_MAIN_EXIT; }
+function sideExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.side) || BRANCH_SIDE_EXIT; }
+function returnExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.return) || BRANCH_RETURN_EXIT; }
+
 function someoneAt(inst, spot){
   return Object.values(inst.players).some(p => !p.dead && Math.hypot(p.x - spot.x, p.y - spot.y) < spot.r);
+}
+
+// ---------- WALL COLLISION (MASTER_DESIGN.md §9, 2026-08-25) ----------
+// Rooms had zero interior geometry before this — an open rectangle with
+// monsters and exit-gate circles, no way to carve a room into real
+// corridors/lanes. `walls` (js/data.js, per room, default none) is a list
+// of simple axis-aligned rectangles; this is the one collision primitive
+// every room can now use, not a per-room-bespoke thing. X and Y are
+// resolved as two separate moves rather than one combined vector — the
+// standard trick for "sliding" along a wall instead of just stopping dead
+// the instant any part of a diagonal move would clip it.
+function circleHitsRect(cx, cy, r, rect){
+  const closestX = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+  const closestY = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+  return Math.hypot(cx - closestX, cy - closestY) < r;
+}
+function hitsAnyWall(x, y, radius, walls){
+  return walls.some(w => circleHitsRect(x, y, radius, w));
+}
+function moveWithWalls(p, dx, dy, walls){
+  if(!walls || walls.length === 0){ p.x += dx; p.y += dy; return; }
+  const nx = p.x + dx;
+  if(!hitsAnyWall(nx, p.y, p.radius, walls)) p.x = nx;
+  const ny = p.y + dy;
+  if(!hitsAnyWall(p.x, ny, p.radius, walls)) p.y = ny;
 }
 
 function advanceToNextRoom(inst){
@@ -1169,15 +1204,15 @@ function loadSideChamber(inst){
 // gate leading to the same next room the main path would have reached.
 function tickBranch(inst){
   if(inst.branchState === 'awaiting_choice'){
-    if(someoneAt(inst, BRANCH_MAIN_EXIT)){
+    if(someoneAt(inst, mainExitFor(inst))){
       inst.branchState = null;
       advanceToNextRoom(inst);
-    } else if(someoneAt(inst, BRANCH_SIDE_EXIT)){
+    } else if(someoneAt(inst, sideExitFor(inst))){
       inst.branchState = 'in_side_chamber';
       loadSideChamber(inst);
     }
   } else if(inst.branchState === 'side_cleared_awaiting_return'){
-    if(someoneAt(inst, BRANCH_RETURN_EXIT)){
+    if(someoneAt(inst, returnExitFor(inst))){
       inst.branchState = null;
       advanceToNextRoom(inst);
     }
@@ -1367,6 +1402,13 @@ function tickMonsters(inst, dt){
     } else if(inst.branchState === null && !currentRoom(inst).boss){
       if(currentRoom(inst).branch){
         inst.branchState = 'awaiting_choice'; // fork: don't auto-advance, wait for a gate choice — see tickBranch()
+        // Secret nook (js/data.js's `secretNook`, real spatial exploration —
+        // MASTER_DESIGN.md §9): a guaranteed loot token sitting in a
+        // dead-end pocket the walls make you actually go looking for,
+        // reusing the existing floor-pickup system rather than a new
+        // mechanic. Reward is finding it, so it's unguarded on purpose.
+        const nook = currentRoom(inst).secretNook;
+        if(nook) pushGearLoot(inst, nook.x, nook.y, randomGearKind());
       } else {
         inst.advancing = true;
         setTimeout(()=>{
@@ -1399,6 +1441,7 @@ function tickPlayers(inst, dt){
     // entirely while active — stunned means frozen in place, feared means
     // fleeing the fear source regardless of what keys are held. tickAutoAttack
     // and doSpecial separately gate attacks on both timers.
+    const walls = currentRoom(inst).walls;
     if(p.stunTimer > 0){
       p.stunTimer = Math.max(0, p.stunTimer - dt);
     } else if(p.fearTimer > 0){
@@ -1406,14 +1449,12 @@ function tickPlayers(inst, dt){
       const src = inst.monsters[p.fearSourceId];
       if(src){
         const d = Math.hypot(p.x - src.x, p.y - src.y) || 1;
-        p.x += (p.x - src.x) / d * p.speed * dt;
-        p.y += (p.y - src.y) / d * p.speed * dt;
+        moveWithWalls(p, (p.x - src.x) / d * p.speed * dt, (p.y - src.y) / d * p.speed * dt, walls);
       }
     } else {
       const { mx, my } = movementVector(p.keys);
       if(mx !== 0 || my !== 0){
-        p.x += mx * p.speed * p.hasteMult * p.boonSpeedMult * dt;
-        p.y += my * p.speed * p.hasteMult * p.boonSpeedMult * dt;
+        moveWithWalls(p, mx * p.speed * p.hasteMult * p.boonSpeedMult * dt, my * p.speed * p.hasteMult * p.boonSpeedMult * dt, walls);
       }
     }
     p.x = Math.max(p.radius, Math.min(W - p.radius, p.x));
@@ -1491,9 +1532,9 @@ function broadcastInstanceState(inst){
     safeExit: { x: SAFE_EXIT_X, y: SAFE_EXIT_Y, r: SAFE_EXIT_RADIUS },
     branch: inst.branchState ? {
       state: inst.branchState,
-      mainExit: BRANCH_MAIN_EXIT,
-      sideExit: BRANCH_SIDE_EXIT,
-      returnExit: BRANCH_RETURN_EXIT
+      mainExit: mainExitFor(inst),
+      sideExit: sideExitFor(inst),
+      returnExit: returnExitFor(inst)
     } : null,
     wave: inst.waveState ? { killsSoFar: inst.waveState.killsSoFar, killTarget: inst.waveState.killTarget } : null,
     family: db.getFamilyState(),
