@@ -1163,6 +1163,14 @@ function checkForWipe(inst){
       if(p.maxMana) p.mana = p.maxMana;
       p.reviveProgress = 0;
       p.spawnProtection = SPAWN_GRACE;
+      // Bug: this loop reset everything about a wiped player except where
+      // they actually are — they'd land back in the safe room logically
+      // (loadRoom(inst, 0) below) but stay rendered at whatever x/y they
+      // died at, possibly deep in a previous room, looking lost until they
+      // wandered back into range of anything. Same spawn-point picker
+      // join/reconnect already use.
+      const spot = pickSpawnPoint(inst);
+      p.x = spot.x; p.y = spot.y;
     }
     loadRoom(inst, 0);
   }, 2000);

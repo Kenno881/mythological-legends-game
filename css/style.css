@@ -146,8 +146,11 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 
 /* Unlike fallenOverlay, this needs real clicks (pointer-events:auto) and
    sits above the action buttons/HUD (z-index) since it's a modal choice for
-   the leveling player, not a passive status readout. */
-#boonOverlay{position:absolute;inset:0;z-index:30;pointer-events:auto;
+   the leveling player, not a passive status readout. z-index:60 is
+   deliberately above #rotateHint's 50 — a level-up mid-rotation shouldn't
+   let the "turn your device" overlay hide/block an actual choice the
+   player needs to make. */
+#boonOverlay{position:absolute;inset:0;z-index:60;pointer-events:auto;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
   background:rgba(10,8,5,.85);text-align:center;padding:20px;}
 .boon-title{font-size:clamp(18px,4vw,26px);color:var(--gold-bright);

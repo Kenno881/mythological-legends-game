@@ -748,6 +748,17 @@ connected left standing, the dungeon wipes: a short beat, then everyone
 resets to that dungeon's safe room at full HP. A real fail state, not
 just an inconvenience, without being a hard account/character reset.
 
+**Bug fix, 2026-08-26 — a wipe reset everything about a fallen player
+except where they actually were.** `checkForWipe`'s reset restored hp/
+mana/boons and moved the *room* back to index 0, but never touched the
+player's own x/y — they'd land back in the safe room logically while
+still rendered wherever they died, possibly deep in a side chamber, and
+had to wander back into range of the exit half-blind. Now resets position
+too, via the same `pickSpawnPoint` helper join/reconnect already use
+(the safe room has no monsters to bias away from, so it's just "near the
+entrance"). Found and flagged while building room 1's wall-collision
+exploration (§9); fixed once the family actually hit it in real play.
+
 **Cooperation requirement — first pass, 2026-08-25 (§1's clarification).**
 Solo already had no revive safety net (above — nobody's left to walk over
 and revive a lone fallen player), but that only bites if a lone player is
@@ -904,6 +915,25 @@ ability-unlock work on top:
   both new abilities work correctly, including the wall-tunneling fix
   above (a blink toward a wall now stops at it instead of jumping clean
   through).
+
+**Bug fix, 2026-08-26 — boon cards weren't actually touch-enabled.**
+Reported live: choosing a boon on level-up didn't respond to taps on a
+phone. Root cause confirmed by dispatching a real synthetic
+touchstart/touchend on a card and checking whether the handler fired — it
+didn't. The cards only had a `click` listener; unlike the ability buttons
+(static `<button>` elements, `js/input.js`), boon cards are dynamically
+created `<div>`s, and a tap on one doesn't reliably synthesize a browser
+`click` event the way a real `<button>` does. Fixed by adding an explicit
+`touchend` handler that calls the same selection logic directly and
+`preventDefault()`s so the browser's own (unreliable) click synthesis, if
+it fires at all, can't double-select. Confirmed fixed with the same
+synthetic-touch-dispatch test that found it, plus confirmed the existing
+desktop mouse-click path still works unchanged. Incidentally also found
+and fixed a latent related issue while investigating: `#boonOverlay`'s
+z-index (30) sat *below* `#rotateHint`'s (50, the "turn your device"
+overlay) — bumped to 60 so a level-up during a brief portrait/rotation
+moment can't get visually hidden behind, and blocked by, the rotate
+prompt.
 
 **Open questions (unchanged from before this pass, still genuinely open):**
 - Whether the numbers are actually well-tuned — the curve

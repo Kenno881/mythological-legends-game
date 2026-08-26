@@ -433,7 +433,15 @@ function updateBoonOverlay(me){
     const card = document.createElement('div');
     card.className = 'boon-card';
     card.innerHTML = `<h4>${b.name}</h4><p>${b.description}</p>`;
+    // A plain `click` listener isn't enough here — unlike the static
+    // <button> ability buttons (input.js), these are dynamically created
+    // <div>s, and a tap on one doesn't reliably synthesize a click event on
+    // a real touch device (confirmed live: a real touchstart/touchend on a
+    // card fired neither listener). touchend calls the same handler
+    // directly and preventDefault()s so the browser's own (unreliable)
+    // click synthesis, if it fires at all, can't double-select a boon.
     card.addEventListener('click', ()=> sendChooseBoon(boonId));
+    card.addEventListener('touchend', (e)=>{ e.preventDefault(); sendChooseBoon(boonId); });
     boonCards.appendChild(card);
   });
 }
