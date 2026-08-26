@@ -197,6 +197,38 @@ toward this, §9.
   times out into a visible, retryable error after 6s if neither shows up.
   Confirmed live: normal join still resolves in ~20ms, and a forced
   rejection now shows a real message instead of hanging.
+- **Server-wide crash containment, 2026-08-26 — reported: "the grey screen
+  bug once more."** The 2026-08-24 fix above only covers one specific
+  cause (a join silently rejected with no reply). Auditing the server for
+  what else could produce the same symptom turned up something more
+  serious: `server.js` had **no crash protection anywhere**. A single
+  uncaught exception in the 20Hz tick loop, in per-connection message
+  handling, or in any of the scattered `setTimeout` callbacks (wipe reset,
+  boss-defeat summary, room-advance delay) is fatal to the whole Node
+  process by default — crashing it for *every* family member across
+  *every* dungeon at once, not just the one player who triggered it. With
+  a lot of new server logic landing this session (leveling, boons, level
+  gates, wall collision, ability unlocks — some of it from a different,
+  less-tested session), an edge case somewhere throwing is a completely
+  plausible cause of a sudden shared "grey screen." Added three layers:
+  each instance's per-tick work is now wrapped individually (one broken
+  dungeon run can't take down any other instance or the process), the
+  per-connection message handler is wrapped the same way (one bad message
+  can't crash the server for everyone else), and a top-level
+  `process.on('uncaughtException'/'unhandledRejection')` backstops
+  anything outside either of those. Same "a failure here can't take down
+  the actual game" principle `db.js` already applies to persistence
+  failures — log loudly, keep running. **Confirmed live:** deliberately
+  injected a throwing bug into the tick loop, restarted, joined a dungeon
+  — the server logged the error every tick (with a real stack trace) but
+  stayed fully responsive (`fetch('/')` kept returning 200) the whole
+  time; reverted the injected bug before committing. **Honest caveat:**
+  this is a structural fix, not a confirmed root-cause fix — there's no
+  access to this morning's actual Railway logs from here, so the exact
+  line that threw (if that's really what happened) is still unknown. If
+  it recurs, Railway's Deploy Logs should now show a clear `[tick]` or
+  `[message]` error with a stack trace instead of the process just going
+  silent, which is what actually lets it get fixed for good next time.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a

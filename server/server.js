@@ -94,6 +94,25 @@ const { WebSocketServer } = require('ws');
 const { CLASSES, WEAPON_TIERS, ARMOR_TIERS, ARTIFACTS, BOONS, DUNGEONS, ENEMY_TYPES, REVIVE_CHANNEL_SECONDS, xpToNextLevel } = require('../js/data.js');
 const db = require('./db.js');
 
+// Outermost safety net — the tick loop and the per-connection message
+// handler each already catch their own errors locally (better context: which
+// instance, which message type), but this backstops anything outside
+// either of those, e.g. a bug inside one of the various setTimeout()
+// callbacks scattered through this file (wipe reset, boss-defeat summary,
+// room-advance delay). A synchronous exception in any event/timer callback
+// is fatal to the whole Node process by default — which would disconnect
+// every family member across every dungeon at once over a bug that likely
+// only affected one of them. Same "a failure here can't take down the
+// actual game" principle db.js already applies to persistence — log
+// loudly, keep running, rather than let one edge case end everyone's
+// session.
+process.on('uncaughtException', (err) => {
+  console.error('[fatal-caught] uncaughtException (server kept running):', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[fatal-caught] unhandledRejection (server kept running):', err);
+});
+
 const PORT = process.env.PORT || 3000; // Railway assigns PORT; 3000 is just the local-dev fallback
 const HOST = '0.0.0.0';                // must bind all interfaces, not just localhost, for Railway
 
@@ -631,46 +650,55 @@ wss.on('connection', (ws, req) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    if(id === null){
-      // Not yet identified — the only message this socket will act on is
-      // a login attempt. Everything else is silently ignored rather than
-      // erroring, since a slow/racy client could plausibly queue an
-      // early message before login resolves.
-      if(msg.type !== 'login') return;
-      const attemptedId = typeof msg.username === 'string' ? msg.username.trim().toLowerCase() : '';
-      const pin = typeof msg.pin === 'string' ? msg.pin : '';
-      if(!ACCOUNTS[attemptedId] || !/^\d{4}$/.test(pin)){
-        ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: 'unknown_account' }));
+    // Everything below can touch arbitrary game state on arbitrary
+    // client-supplied input — one bad message from one client throwing
+    // here used to crash the whole process (a synchronous exception in an
+    // event listener is fatal by default in Node), disconnecting every
+    // family member at once over what should only ever affect the sender.
+    try {
+      if(id === null){
+        // Not yet identified — the only message this socket will act on is
+        // a login attempt. Everything else is silently ignored rather than
+        // erroring, since a slow/racy client could plausibly queue an
+        // early message before login resolves.
+        if(msg.type !== 'login') return;
+        const attemptedId = typeof msg.username === 'string' ? msg.username.trim().toLowerCase() : '';
+        const pin = typeof msg.pin === 'string' ? msg.pin : '';
+        if(!ACCOUNTS[attemptedId] || !/^\d{4}$/.test(pin)){
+          ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: 'unknown_account' }));
+          return;
+        }
+        const result = db.verifyOrClaimPin(attemptedId, pin);
+        if(!result.ok){
+          ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: result.reason }));
+          return;
+        }
+        ws.send(JSON.stringify({ type: 'loginResult', ok: true, accountId: attemptedId, isNewClaim: result.isNewClaim }));
+        finishConnect(attemptedId);
         return;
       }
-      const result = db.verifyOrClaimPin(attemptedId, pin);
-      if(!result.ok){
-        ws.send(JSON.stringify({ type: 'loginResult', ok: false, reason: result.reason }));
+
+      if(msg.type === 'leaveDungeon'){
+        // Special-cased here rather than in handleMessage() because it needs
+        // to reset this closure's own `id` back to null — the whole point is
+        // this same socket can go through 'login' again afterward without
+        // reconnecting, exactly like a fresh, never-logged-in connection.
+        const instIdx = playerInstance.get(id);
+        const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
+        if(inst) delete inst.players[id]; // instance cleanup (if now empty) happens in the tick loop, not here
+        playerInstance.delete(id);
+        if(reconnectTimers.has(id)){ clearTimeout(reconnectTimers.get(id)); reconnectTimers.delete(id); }
+        clients.delete(id);
+        console.log(`[leave] ${id} left the dungeon`);
+        ws.send(JSON.stringify({ type: 'leftDungeon' }));
+        id = null;
         return;
       }
-      ws.send(JSON.stringify({ type: 'loginResult', ok: true, accountId: attemptedId, isNewClaim: result.isNewClaim }));
-      finishConnect(attemptedId);
-      return;
-    }
 
-    if(msg.type === 'leaveDungeon'){
-      // Special-cased here rather than in handleMessage() because it needs
-      // to reset this closure's own `id` back to null — the whole point is
-      // this same socket can go through 'login' again afterward without
-      // reconnecting, exactly like a fresh, never-logged-in connection.
-      const instIdx = playerInstance.get(id);
-      const inst = instIdx !== undefined ? instances.get(instIdx) : undefined;
-      if(inst) delete inst.players[id]; // instance cleanup (if now empty) happens in the tick loop, not here
-      playerInstance.delete(id);
-      if(reconnectTimers.has(id)){ clearTimeout(reconnectTimers.get(id)); reconnectTimers.delete(id); }
-      clients.delete(id);
-      console.log(`[leave] ${id} left the dungeon`);
-      ws.send(JSON.stringify({ type: 'leftDungeon' }));
-      id = null;
-      return;
+      handleMessage(id, msg);
+    } catch (err) {
+      console.error(`[message] error handling '${msg && msg.type}' from ${id}:`, err);
     }
-
-    handleMessage(id, msg);
   });
 
   ws.on('close', () => {
@@ -1624,17 +1652,29 @@ setInterval(()=>{
   const dt = Math.min(0.1, (now - lastTick) / 1000);
   lastTick = now;
 
-  for(const inst of instances.values()){
-    tickPlayers(inst, dt);
-    tickAutoAttack(inst);
-    tickMonsters(inst, dt);
-    tickWaveSpawns(inst, dt);
-    tickProjectiles(inst, dt);
-    tickLoot(inst);
-    tickSafeRoom(inst);
-    tickBranch(inst);
-    tickRevive(inst, dt);
-    broadcastInstanceState(inst);
+  // Each instance's tick is isolated — an uncaught exception in one
+  // family's dungeon run used to crash this whole setInterval callback,
+  // which crashes the entire Node process (Node re-throws a synchronous
+  // error from an event/timer callback and exits by default), taking
+  // down every OTHER instance and every connected player along with it.
+  // One bad edge case in one room shouldn't be able to freeze the game
+  // for the whole family — same "a failure here can't take down the
+  // actual game" principle db.js already applies to persistence.
+  for(const [idx, inst] of instances){
+    try {
+      tickPlayers(inst, dt);
+      tickAutoAttack(inst);
+      tickMonsters(inst, dt);
+      tickWaveSpawns(inst, dt);
+      tickProjectiles(inst, dt);
+      tickLoot(inst);
+      tickSafeRoom(inst);
+      tickBranch(inst);
+      tickRevive(inst, dt);
+      broadcastInstanceState(inst);
+    } catch (err) {
+      console.error(`[tick] error in instance ${idx} (${DUNGEONS[idx] ? DUNGEONS[idx].name : '?'}):`, err);
+    }
   }
 
   // Instance cleanup — run state was always ephemeral (see the top-of-file
