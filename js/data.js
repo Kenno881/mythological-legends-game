@@ -253,7 +253,14 @@ const DUNGEONS = [
         doors: [
           { to: 3, dir: 'north', color: [212,60,45],
             label: "The Poacher's Den — their captain keeps watch here, worth the fight." },
-          { to: 5, dir: 'east', color: [232,193,74], label: "Onward to the Ford" },
+          // Label changed 2026-08-26 (dungeon-expansion pass) — this used
+          // to say "Onward to the Ford" and lead straight to the boss; it
+          // now leads to a second hub instead, so it reads as a step
+          // onward rather than arrival. Every door that actually reaches
+          // the boss room still says "Onward to the Ford" — kept distinct
+          // on purpose so that phrase reliably means "the boss is through
+          // here," not reused for an intermediate room too.
+          { to: 5, dir: 'east', color: [232,193,74], label: "Press on toward the Ford" },
           { to: 4, dir: 'south', color: [90,150,110],
             label: "The Sunken Trail — the road dips into marshland, something stirs in the reeds." }
         ]},
@@ -273,9 +280,12 @@ const DUNGEONS = [
         ],
         // Second door added 2026-08-26 — backtracking: south, back the way
         // in (the hub is north of here), matching OPPOSITE_DIR of the
-        // hub's own north-pointing door to this room.
+        // hub's own north-pointing door to this room. `to: 7` (not 5) as
+        // of the same day's dungeon-expansion pass — the boss room moved
+        // to make room for a second hub; this stays a direct shortcut
+        // straight to the boss, bypassing it, same as it always has.
         doors: [
-          { to: 5, dir: 'east', label: "Onward to the Ford" },
+          { to: 7, dir: 'east', label: "Onward to the Ford" },
           { to: 2, dir: 'south', label: "Back to the Watchtower" }
         ]
       },
@@ -305,16 +315,59 @@ const DUNGEONS = [
         pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ],
         // Second door added 2026-08-26 — backtracking: north, back the way
         // in (the hub is north of here), matching OPPOSITE_DIR of the
-        // hub's own south-pointing door to this room.
+        // hub's own south-pointing door to this room. `to: 7` (not 5) as
+        // of the same day's dungeon-expansion pass — see the Poacher's
+        // Den's identical note above.
         doors: [
-          { to: 5, dir: 'east', label: "Onward to the Ford" },
+          { to: 7, dir: 'east', label: "Onward to the Ford" },
           { to: 2, dir: 'north', label: "Back to the Watchtower" }
         ]
       },
+      // The Ford's Edge — a second hub (2026-08-26, dungeon-expansion
+      // pass: "not sprawling, but big enough"). Old Watchtower's own
+      // "onward" door used to lead straight to the boss, free — the one
+      // path through the dungeon that skipped a real fight entirely. Now
+      // it leads here instead: a tougher camp guarding the final approach,
+      // which itself opens two doors — the Riverbank Ambush (optional,
+      // harder, guaranteed loot) or straight on to the boss. Every route
+      // through Sherwood now costs at least two real fights, not one.
+      // Same recipe as the first hub throughout, including backtracking:
+      // a door west, back to Old Watchtower.
+      { loreText: "The road narrows toward the ford — bandits have dug in here, the last camp before the crossing itself.",
+        grid: {x:1, y:0},
+        enemies: [
+          {type:"darkKnight", x:500, y:280}, {type:"darkKnight", x:400, y:480},
+          {type:"bandit", x:620, y:480}
+        ],
+        doors: [
+          { to: 6, dir: 'north', color: [212,60,45],
+            label: "The Riverbank Ambush — a narrow bend thick with cover, worth the fight." },
+          { to: 7, dir: 'east', color: [232,193,74], label: "Onward to the Ford" },
+          { to: 2, dir: 'west', label: "Back to the Watchtower" }
+        ]},
+      // The Riverbank Ambush — the second hub's optional detour, same
+      // "guaranteed loot for a harder fight" shape as the Poacher's Den,
+      // but a tougher trash pack rather than a second named mini-boss (one
+      // Bandit Captain in the dungeon reads right; two would just feel
+      // like a reused asset). Mirrors Ambush Hollow's own shape instead —
+      // more/tougher trash, no unique unit.
+      { loreText: "A narrow bend in the road, thick with cover — the kind of place bandits love to wait.",
+        grid: {x:1, y:-1},
+        guaranteedLoot: true,
+        enemies: [
+          {type:"darkKnight", x:400, y:250}, {type:"darkKnight", x:600, y:250},
+          {type:"bandit", x:350, y:450}, {type:"bandit", x:650, y:450}
+        ],
+        doors: [
+          { to: 7, dir: 'east', label: "Onward to the Ford" },
+          { to: 5, dir: 'south', label: "Back to the Ford's Edge" }
+        ]},
       // Boss room — usually the Black Knight, rarely (see rareVariant)
       // Sir Gorlagon instead, per §5/§6/§9's "sometimes it's someone
-      // special" rare-boss idea.
-      { boss: true, grid: {x:1, y:0}, enemies: [ {type:"blackKnight", x:500, y:280} ],
+      // special" rare-boss idea. Moved from index 5 to 7 (2026-08-26) to
+      // make room for the second hub above; grid shifted from {1,0} to
+      // {2,0} to match.
+      { boss: true, grid: {x:2, y:0}, enemies: [ {type:"blackKnight", x:500, y:280} ],
         rareVariant: { type: "blackKnightRare", chance: 0.12 } }
     ]
   },

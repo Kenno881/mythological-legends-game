@@ -224,6 +224,15 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .abtn{width:76px;height:76px;border-radius:50%;border:3px solid var(--ink);font-family:inherit;
   font-size:11px;font-variant:small-caps;line-height:1.1;color:var(--ink);cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;}
+/* Ability name label (2026-08-26) — replaces the old static "Ability"/
+   "Special" placeholder text with the class's real special1/special2 name
+   (js/render.js's updateHud), so a family member actually knows what
+   they're about to press instead of memorizing it. Smaller/tighter than
+   the button's base font so real 2-word ability names (e.g. "Healing
+   Light") wrap to two lines and stay inside the circle instead of
+   spilling past its edge. */
+.abtn-label{font-size:9.5px;line-height:1.05;padding:0 8px;text-align:center;
+  overflow-wrap:break-word;max-width:100%;}
 .abtn.special1{background:radial-gradient(circle,#e0e0e0,#8a1f2b);color:var(--parchment);}
 .abtn.special2{background:radial-gradient(circle,#a8d8e8,#1a5a8a);color:var(--parchment);}
 .abtn .cd{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.6);

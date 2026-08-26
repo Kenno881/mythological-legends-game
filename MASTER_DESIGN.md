@@ -437,6 +437,28 @@ toward this, §9.
   forever and never take a hit, solo, no teammate needed. Now slower than
   every Sherwood trash mob; a teammate holding aggro is what actually
   keeps a caster safe.
+- **Sherwood dungeon expansion, 2026-08-26 (§9).** A second hub, The
+  Ford's Edge, plus an optional harder detour, The Riverbank Ambush —
+  Sherwood grew from 6 rooms to 8, and the hub's old free "onward to the
+  boss" door now costs a real fight first. Pure content on the existing
+  doors/grid/backtracking framework, no new mechanism.
+- **Ability button labels, 2026-08-26 — user request ("we need to know
+  what we're doing").** The two ability buttons used to just say the
+  static, generic "Ability"/"Special" forever, regardless of class — no
+  indication anywhere in the HUD of what pressing one actually does. Now
+  shows the real name (`CLASSES[classKey].special1/2.name`, `js/render.js`'s
+  `updateHud`) — "Shield Bash," "Arcane Nova," "Taunt," whatever the
+  current class actually has. Confirmed live for two classes (Squire:
+  "Shield Bash"/"Second Wind" both shown at level 6; Apprentice: "Arcane
+  Nova" shown, second button correctly still hidden pre-unlock at level 1
+  — the existing `unlockLevel` gating wasn't disturbed). Couldn't get a
+  real pixel/visual confirmation this pass — this sandboxed browser
+  reports a zero-size layout box for every element (consistent with the
+  environment's other rendering limits noted elsewhere in this doc:
+  `requestAnimationFrame` never firing, screenshots failing), so the CSS
+  sizing (9.5px label font, wrapping enabled, inside the existing 76px
+  circular button) is reasoned-through rather than eyeballed — worth an
+  actual look on a real device before calling it done.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -1211,6 +1233,49 @@ confirmed the *next* attempt correctly re-fought the hub from scratch
 instead of treating it as still cleared — the `clearedRooms` reset on a
 real run restart firing correctly, not just asserted. Zero server errors
 across the entire extended session.
+
+**Dungeon expansion — a second hub, 2026-08-26. User framing: "not
+sprawling, but big enough," ahead of the family weekend session.** The
+hub's own "onward" door used to lead straight to the boss for free — the
+one route through Sherwood that skipped a real fight entirely. It now
+leads to **The Ford's Edge**, a second hub, which itself opens two doors:
+**The Riverbank Ambush** (optional, harder, guaranteed loot — same shape
+as the Poacher's Den, but a tougher trash pack instead of a second named
+mini-boss, since two Bandit Captains in one dungeon would read as a
+reused asset rather than a real encounter) or straight on to the boss.
+Every route through Sherwood now costs at least two real fights, not one.
+Sherwood grew from 6 rooms to 8 — pure content on top of the doors/grid/
+backtracking framework from the last three passes, zero new server or
+client logic. The two existing shortcuts (Poacher's Den's and the Sunken
+Trail's own direct "Onward to the Ford" doors) got their `to` index
+updated to the boss's new position (5 → 7) and otherwise left exactly as
+they were — they still bypass the new hub entirely, on purpose, the same
+shortcut they always were. New rooms follow the established grid
+convention exactly (Ford's Edge at `{1,0}`, east of the first hub;
+Riverbank Ambush at `{1,-1}`, north of it; boss shifted from `{1,0}` to
+`{2,0}`) and reuse only existing enemy types (`bandit`/`darkKnight`), no
+new content authored beyond room data — matches Pillar 4.
+
+One label was deliberately changed, not just added: the first hub's own
+door to the new second hub kept the phrase "Onward to the Ford" reused
+from before this pass would have been ambiguous once a door with that
+exact name also leads to an intermediate room, not the boss — so it's now
+"Press on toward the Ford," and every door that actually reaches the boss
+(there are four now) keeps saying "Onward to the Ford" consistently,
+reliably meaning the same thing everywhere it appears.
+
+**Confirmed live end-to-end**, including a check the doors/grid pass never
+had reason to make: that raising a room count doesn't silently break
+anything room-index-agnostic code was already relying on. Temporarily
+leveled up the local dev save's test character again (reverted before
+committing, same as every other pass that's needed this). Walked the full
+new route (hub → Ford's Edge → Riverbank Ambush → boss) and confirmed
+each new room's doors, labels, and entry-wall positioning were exactly
+right; the minimap correctly grew to show all 8 rooms at their precise
+grid-implied positions with no code changes required. Then, separately,
+re-ran the *existing* Poacher's Den shortcut and confirmed it still lands
+correctly in the boss room at its new index (7) — the reindex didn't
+quietly strand an old route. Zero server errors throughout.
 
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need

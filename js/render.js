@@ -173,12 +173,22 @@ function updateHud(s){
 
   const c = CLASSES[me.classKey];
   setCdVisual('cdSpecial1', me.cds.special1, c.special1 ? c.special1.cd : 1);
+  // Ability button labels (2026-08-26, user request) — the buttons used to
+  // just say the generic "Ability"/"Special" forever, with nothing telling
+  // a player what pressing one actually does beyond memory or a one-time
+  // glance at the class-select screen. Set once per class is enough (the
+  // name never changes mid-run), but this runs every HUD update anyway —
+  // textContent assignment is cheap and idempotent, no dirty-check needed.
+  if(c.special1) document.getElementById('abtnLabel1').textContent = c.special1.name;
   // Locked-but-not-yet-learned (§10's unlockLevel) reads exactly like
   // "this class doesn't have one" already did — same hidden button, no
   // dead-button feel, no separate "locked" visual state to design.
   const special2Learned = c.special2 && (!c.special2.unlockLevel || me.level >= c.special2.unlockLevel);
   document.getElementById('btnSpecial2').classList.toggle('hidden', !special2Learned);
-  if(special2Learned) setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
+  if(special2Learned){
+    setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
+    document.getElementById('abtnLabel2').textContent = c.special2.name;
+  }
 
   // Loot toast fires for whichever slot actually changed since the last
   // update — each checked independently since a boss kill can grant more
