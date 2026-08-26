@@ -299,6 +299,20 @@ toward this, §9.
   needs a real notched/status-bar device to fully confirm, same
   limitation as every other "how does this look on a real phone" item
   this session.
+
+  **Follow-up, same day — `manifest.json`'s `display` switched
+  `standalone` → `fullscreen`.** The safe-area work above makes content
+  correctly avoid the status bar; this instead removes it outright,
+  which is what was actually wanted for a game. Android-only —
+  `fullscreen` isn't available to a home-screen web app on iOS at all
+  (a platform restriction, not something fixable in code); unsupported
+  browsers fall back to `standalone` automatically per the manifest
+  spec's own display-mode fallback chain, so this is a safe, low-risk
+  change either way. Trade-off: fullscreen also hides quick glances at
+  the clock/battery/notifications — swipe down from the top edge to
+  briefly reveal them instead of always seeing them. The safe-area
+  support above stays in place regardless (still needed for iOS, and
+  harmless if a browser ever falls back to standalone on Android too).
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
