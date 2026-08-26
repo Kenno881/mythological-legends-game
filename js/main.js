@@ -11,6 +11,7 @@ const screens = {
   title: document.getElementById('screen-title'),
   login: document.getElementById('screen-login'),
   characters: document.getElementById('screen-characters'),
+  admin: document.getElementById('screen-admin'),
   dungeonSelect: document.getElementById('screen-dungeon-select'),
   game: document.getElementById('screen-game'),
   dungeonComplete: document.getElementById('screen-dungeon-complete'),
@@ -109,6 +110,121 @@ function onCharacterList(msg){
   }
   if(state === 'characters') showRosterPanel();
 }
+
+// ---------- ADMIN (§8a, Dad's account only — server re-checks isAdmin on
+// every action regardless of whether this button is visible) ----------
+let lastAdminOverview = null;
+const adminAccountSelect = document.getElementById('adminAccountSelect');
+const adminCharacterSelect = document.getElementById('adminCharacterSelect');
+const adminStatus = document.getElementById('adminStatus');
+
+document.getElementById('btnOpenAdmin').addEventListener('click', ()=>{
+  showScreen('admin');
+  sendAdminGetOverview();
+});
+document.getElementById('btnAdminBack').addEventListener('click', ()=>{
+  showRosterPanel();
+  showScreen('characters');
+});
+document.getElementById('btnAdminRefresh').addEventListener('click', sendAdminGetOverview);
+
+function renderAdminCharacterOptions(){
+  adminCharacterSelect.innerHTML = '';
+  if(!lastAdminOverview) return;
+  const acct = lastAdminOverview.roster.find(a => a.id === adminAccountSelect.value);
+  if(!acct) return;
+  acct.characters.forEach(ch=>{
+    const c = CLASSES[ch.classKey];
+    const opt = document.createElement('option');
+    opt.value = ch.id;
+    opt.textContent = `${c ? c.name : ch.classKey} (Lv ${ch.level || 1})`;
+    adminCharacterSelect.appendChild(opt);
+  });
+}
+adminAccountSelect.addEventListener('change', renderAdminCharacterOptions);
+
+// Refreshed after every admin action too (server.js sends a fresh overview
+// back each time), not just the initial open — so the panel reflects
+// reality immediately instead of needing a manual refresh to see whether
+// an action actually took effect.
+function onAdminOverview(msg){
+  lastAdminOverview = msg;
+  adminStatus.textContent = '';
+
+  const prevAccount = adminAccountSelect.value;
+  adminAccountSelect.innerHTML = '';
+  msg.roster.forEach(acct=>{
+    const opt = document.createElement('option');
+    opt.value = acct.id;
+    opt.textContent = acct.name;
+    adminAccountSelect.appendChild(opt);
+  });
+  if(msg.roster.some(a => a.id === prevAccount)) adminAccountSelect.value = prevAccount;
+  renderAdminCharacterOptions();
+
+  const instanceListEl = document.getElementById('adminInstanceList');
+  instanceListEl.innerHTML = '';
+  if(msg.activeInstances.length === 0){
+    instanceListEl.innerHTML = '<div class="admin-list-empty">No active dungeon runs right now.</div>';
+  } else {
+    msg.activeInstances.forEach(inst=>{
+      const names = inst.playerIds.map(pid=>{
+        const acct = msg.roster.find(a => a.id === pid);
+        return acct ? acct.name : pid;
+      }).join(', ') || 'empty';
+      const row = document.createElement('div');
+      row.className = 'admin-list-row';
+      row.innerHTML = `<span>${inst.name} — ${names}</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'btn secondary'; btn.type = 'button';
+      btn.textContent = 'Reset to Safe Room';
+      btn.addEventListener('click', ()=>{
+        if(!confirm(`Reset ${inst.name} back to its safe room for everyone in it?`)) return;
+        sendAdminResetInstance(inst.dungeonIndex);
+      });
+      row.appendChild(btn);
+      instanceListEl.appendChild(row);
+    });
+  }
+
+  const lockListEl = document.getElementById('adminLockList');
+  lockListEl.innerHTML = '';
+  const locked = msg.roster.filter(a => a.activeDungeonIndex !== null);
+  if(locked.length === 0){
+    lockListEl.innerHTML = '<div class="admin-list-empty">Nobody is currently locked into a run.</div>';
+  } else {
+    locked.forEach(acct=>{
+      const dungeonName = DUNGEONS[acct.activeDungeonIndex] ? DUNGEONS[acct.activeDungeonIndex].name : '?';
+      const row = document.createElement('div');
+      row.className = 'admin-list-row';
+      row.innerHTML = `<span>${acct.name} — ${dungeonName}</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'btn secondary'; btn.type = 'button';
+      btn.textContent = 'Clear Lock';
+      btn.addEventListener('click', ()=>{
+        if(!confirm(`Clear ${acct.name}'s join lock? Only do this if they're actually stuck, not mid-session.`)) return;
+        sendAdminClearJoinLock(acct.id);
+      });
+      row.appendChild(btn);
+      lockListEl.appendChild(row);
+    });
+  }
+}
+
+document.getElementById('btnAdminSetLevel').addEventListener('click', ()=>{
+  const accountId = adminAccountSelect.value, characterId = adminCharacterSelect.value;
+  const level = Number(document.getElementById('adminLevelInput').value) || 1;
+  if(!accountId || !characterId){ adminStatus.textContent = 'Pick a family member and character first.'; return; }
+  sendAdminSetLevel(accountId, characterId, level);
+  adminStatus.textContent = 'Setting…';
+});
+document.getElementById('btnAdminResetLevel').addEventListener('click', ()=>{
+  const accountId = adminAccountSelect.value, characterId = adminCharacterSelect.value;
+  if(!accountId || !characterId){ adminStatus.textContent = 'Pick a family member and character first.'; return; }
+  if(!confirm('Reset this character back to level 1?')) return;
+  sendAdminSetLevel(accountId, characterId, 1);
+  adminStatus.textContent = 'Resetting…';
+});
 
 // ---------- DUNGEON SELECT ----------
 // Any dungeon can be picked from the outset (MASTER_DESIGN.md's §5
@@ -346,6 +462,7 @@ function onLoginResult(msg){
 // Sherwood Approach (the first dungeon) never gates on the rest of the
 // family — anyone logs straight in, solo or otherwise.
 function onWelcome(msg){
+  document.getElementById('btnOpenAdmin').classList.toggle('hidden', !myIsAdmin);
   if(msg.resuming){ showScreen('game'); return; } // already had a live character — drop straight back in
   showRosterPanel();
   showScreen('characters');

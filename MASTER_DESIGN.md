@@ -367,6 +367,12 @@ toward this, §9.
   pass — needs a real family session to confirm it lands right, not DPS
   math. Confirmed live: new numbers load correctly in a fresh Sherwood
   instance (bandit 46hp/9dmg → 54hp/10dmg).
+- **Admin panel, 2026-08-26 (§8a).** Dad's account only — a small screen
+  (level-set on any family member's character, reset a dungeon instance
+  to its safe room, clear a stuck join lock), each action re-verified
+  server-side regardless of the panel's own client-side visibility.
+  Finally builds the level-boost catch-up tool the design doc named back
+  at launch but never implemented.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -753,10 +759,39 @@ anyone, any subset, solo included, permanently (`db.js`'s
 `firstCleared`-flag idea originally deferred at launch (§12 Phase 2),
 finally built alongside real dungeon selection (§9).
 
-**Level boosting for catch-up.** Ken's account carries an admin flag,
-enabling a direct level-set action on any character — for someone who
+**Level boosting for catch-up — built 2026-08-26.** Dad's account carries
+an admin flag (`ACCOUNTS.dad.isAdmin`, server.js), enabling a direct
+level-set action on any family member's character — for someone who
 missed sessions and needs to catch up to the rest of the family. No
-separate access-control system needed at this scale, just the one flag.
+separate access-control system needed at this scale, just the one flag,
+re-checked server-side on every `admin*` message regardless of what the
+client claims (the panel's own visibility is convenience, not the real
+gate — confirmed live: a non-admin account's direct probe of the same
+message type got silently ignored, no reply, no crash).
+
+Shipped as a small admin screen (reached via a "Admin" button that only
+renders for the admin account), not a generic command console — three
+narrow actions, each its own explicit message type:
+- **Set a character's level** (any family member, any of their saved
+  characters) — the catch-up tool above. Updates the persisted character
+  row and, if that exact character happens to be live in an active
+  instance right now, the runtime object too, so the change is visible
+  immediately rather than only on their next join.
+- **Reset a dungeon instance to its safe room** — everyone currently in
+  it gets the same reset a real wipe gives (full HP, boons cleared,
+  repositioned to the entrance), without needing to actually wipe.
+- **Clear a stuck "already active" join lock** — for an account the
+  server still thinks is mid-instance after an unclean disconnect the
+  normal reconnect-grace window didn't catch, blocking them from
+  rejoining anything until it's cleared.
+
+Confirmed live end-to-end: created a fresh Dad character, set it to
+level 10 then back to 1 (both persisted and reflected in the panel
+immediately), joined a real Sherwood instance and confirmed it appeared
+correctly in both the "active runs" and "stuck locks" lists, reset it
+(instance-state cleared, `[admin]` logged), then cleared the join lock
+(instance correctly auto-tore-down once empty, matching the existing
+instance-cleanup behavior).
 
 **Open questions:**
 - PIN length/format and recovery (if a kid forgets it — likely just "ask
@@ -1198,9 +1233,10 @@ as-is regardless of the run-model change)*
       `db.js`'s `dungeonsCleared` list, checked by `tickSafeRoom`. Once a
       dungeon's cleared once, the full-party requirement drops for good,
       solo included)*
-- [ ] Admin flag on Ken's account, gating a direct level-set action for
-      catch-up *(deferred — leveling exists now (§10, 2026-08-25) but the
-      admin UI/action to directly set one wasn't part of that pass)*
+- [x] Admin flag on Ken's account, gating a direct level-set action for
+      catch-up *(done 2026-08-26 — see §8a. Grew into a small admin
+      screen: level-set, instance reset, and stuck-join-lock clearing,
+      all re-verified server-side regardless of client-side visibility)*
 - [x] Remember the connection passphrase client-side too, alongside the
       logged-in account, so kids aren't retyping either credential each
       session

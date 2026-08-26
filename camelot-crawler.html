@@ -54,6 +54,11 @@
 
     <div id="rosterList" class="class-grid"></div>
 
+    <!-- Admin panel entry (§8a) — shown only for the one account with
+         isAdmin:true (server-verified on every action, not just this
+         visibility check); see js/main.js's onWelcome. -->
+    <button class="btn secondary hidden" id="btnOpenAdmin" type="button">Admin</button>
+
     <div id="createClassPanel" class="hidden">
       <div class="title-plate" style="font-size:18px;">Choose a Class</div>
       <div class="class-grid" id="createClassGrid"></div>
@@ -66,6 +71,39 @@
       <button class="btn" id="btnGenderFemale">Female</button>
       <button class="btn secondary" id="btnCreateGenderBack">Back</button>
     </div>
+  </div>
+
+  <!-- ADMIN (§8a, Dad's account only) — family-scale utility actions, not
+       a general command console. Every action here is re-verified
+       server-side (isAdmin check on the account), this screen's own
+       visibility is just convenience, not the real gate. -->
+  <div id="screen-admin" class="screen hidden">
+    <div class="title-plate" style="font-size:26px;">Admin</div>
+
+    <div class="admin-section">
+      <h3>Set a Character's Level</h3>
+      <div class="admin-row">
+        <select id="adminAccountSelect"></select>
+        <select id="adminCharacterSelect"></select>
+        <input type="number" id="adminLevelInput" min="1" max="999" value="1" style="width:70px;">
+        <button class="btn" id="btnAdminSetLevel" type="button">Set Level</button>
+        <button class="btn secondary" id="btnAdminResetLevel" type="button">Reset to Lv 1</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h3>Active Dungeon Runs</h3>
+      <div id="adminInstanceList" class="admin-list"></div>
+    </div>
+
+    <div class="admin-section">
+      <h3>Stuck Join Locks</h3>
+      <div id="adminLockList" class="admin-list"></div>
+    </div>
+
+    <div id="adminStatus" class="passphrase-error"></div>
+    <button class="btn secondary" id="btnAdminRefresh" type="button">Refresh</button>
+    <button class="btn secondary" id="btnAdminBack" type="button">Back</button>
   </div>
 
   <!-- DUNGEON SELECT — any completed dungeon is open to anyone, any subset,

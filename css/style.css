@@ -102,6 +102,20 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .login-grid .class-card h3{margin:0;font-size:20px;}
 #loginPinPanel{display:flex;flex-direction:column;align-items:center;}
 
+/* Admin (§8a) — plain, utilitarian, deliberately un-fancy: this is a
+   family-scale maintenance tool, not part of the game's own presentation. */
+.admin-section{background:var(--parchment);color:var(--ink);border:3px solid var(--wood);
+  border-radius:8px;padding:14px 16px;margin-bottom:14px;max-width:520px;width:100%;text-align:left;}
+.admin-section h3{margin:0 0 10px 0;font-variant:small-caps;color:var(--burgundy);letter-spacing:1px;}
+.admin-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.admin-row select, .admin-row input{font-family:inherit;font-size:13px;padding:6px 8px;
+  border:2px solid var(--wood);border-radius:5px;background:#fff;color:var(--ink);}
+.admin-list{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;}
+.admin-list-row{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  background:rgba(0,0,0,.06);border-radius:5px;padding:6px 10px;font-size:13px;}
+.admin-list-empty{font-size:12px;font-style:italic;color:var(--wood);opacity:.8;}
+.admin-list-row .btn{margin:0;padding:6px 12px;font-size:12px;box-shadow:none;}
+
 .roster-card{text-align:center;padding:18px 10px;}
 .roster-card p{font-size:12px;color:var(--wood);}
 .roster-create{display:flex;align-items:center;justify-content:center;

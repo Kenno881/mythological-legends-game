@@ -170,12 +170,17 @@ const REVIVE_HP_FRACTION = 0.4;
 // passphrase gate). PINs themselves are never pre-assigned here — see
 // server/db.js's verifyOrClaimPin, which lets each account set its own
 // PIN on first login rather than this file ever handling/transmitting one.
+// isAdmin (2026-08-26, MASTER_DESIGN.md §8a) gates the admin panel/actions
+// below — Dad's account only. No separate access-control system needed at
+// this scale, same call the design doc already made: one flag on one
+// account, checked server-side on every admin message (never trust the
+// client's own "should I show the button" check as the real gate).
 const ACCOUNTS = {
-  dad:    { name: 'Dad',    isTest: false },
-  mum:    { name: 'Mum',    isTest: false },
-  amelia: { name: 'Amelia', isTest: false },
-  declan: { name: 'Declan', isTest: false },
-  test:   { name: 'test',   isTest: true }
+  dad:    { name: 'Dad',    isTest: false, isAdmin: true },
+  mum:    { name: 'Mum',    isTest: false, isAdmin: false },
+  amelia: { name: 'Amelia', isTest: false, isAdmin: false },
+  declan: { name: 'Declan', isTest: false, isAdmin: false },
+  test:   { name: 'test',   isTest: true,  isAdmin: false }
 };
 const FAMILY_IDS = Object.keys(ACCOUNTS).filter(id => !ACCOUNTS[id].isTest);
 
@@ -730,7 +735,7 @@ wss.on('connection', (ws, req) => {
       // its own level/xp (db.js), so dungeon-select's level-gate badges
       // read the chosen character's own level client-side instead of a
       // separate top-level field here.
-      characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest,
+      characters: db.getCharacters(id), isTest: ACCOUNTS[id].isTest, isAdmin: ACCOUNTS[id].isAdmin,
       dungeonsCleared: db.getFamilyState().dungeonsCleared
     }));
     console.log(`[connect] ${id}${resuming ? ' (resuming)' : ''}`);
@@ -817,6 +822,16 @@ wss.on('connection', (ws, req) => {
 
 function handleMessage(id, msg){
   if(!msg || typeof msg.type !== 'string') return;
+
+  // Every admin.* message shares one gate here rather than each handler
+  // re-checking it — never trust the client's own "should I show this
+  // button" logic as the real access control, only this server-side check
+  // of the account's own isAdmin flag (ACCOUNTS, MASTER_DESIGN.md §8a).
+  if(msg.type.indexOf('admin') === 0){
+    if(!ACCOUNTS[id] || !ACCOUNTS[id].isAdmin) return;
+    handleAdminMessage(id, msg);
+    return;
+  }
 
   if(msg.type === 'createCharacter'){
     const classKey = CLASSES[msg.classKey] ? msg.classKey : null;
@@ -979,6 +994,96 @@ function handleMessage(id, msg){
 
   if(msg.action === 'special1') doSpecial(inst, player, 1);
   else if(msg.action === 'special2') doSpecial(inst, player, 2);
+}
+
+// ---------- ADMIN (MASTER_DESIGN.md §8a, 2026-08-26) ----------
+// Reached only after handleMessage's isAdmin gate above — every branch
+// here assumes that already passed, doesn't re-check it. Family-scale
+// tooling: catch-up level sets, unsticking a wedged instance or join
+// lock. Deliberately not exposed as a generic "run any server command"
+// console — each action is its own explicit, narrow message type.
+function handleAdminMessage(id, msg){
+  const ws = clients.get(id);
+  // Sent back after every action (not just the initial fetch) so the
+  // panel reflects the actual new state immediately rather than the
+  // admin having to manually hit refresh to see whether their own change
+  // took effect.
+  function sendOverview(){
+    if(!ws) return;
+    const roster = FAMILY_IDS.map(fid => ({
+      id: fid,
+      name: ACCOUNTS[fid].name,
+      characters: db.getCharacters(fid),
+      activeDungeonIndex: playerInstance.has(fid) ? playerInstance.get(fid) : null
+    }));
+    const activeInstances = Array.from(instances.keys()).map(idx => ({
+      dungeonIndex: idx,
+      name: DUNGEONS[idx].name,
+      playerIds: Object.keys(instances.get(idx).players)
+    }));
+    ws.send(JSON.stringify({ type: 'adminOverview', roster, activeInstances }));
+  }
+
+  if(msg.type === 'adminGetOverview'){
+    sendOverview();
+    return;
+  }
+
+  if(msg.type === 'adminSetLevel'){
+    const targetId = typeof msg.accountId === 'string' ? msg.accountId.toLowerCase() : '';
+    if(!ACCOUNTS[targetId]) return;
+    const character = db.getCharacter(targetId, msg.characterId);
+    if(!character) return; // unknown/stale characterId
+    const level = Math.max(1, Math.min(999, Math.round(Number(msg.level)) || 1));
+    db.saveCharacterProgress(targetId, msg.characterId, level, 0);
+    // If that exact character is the one currently live in an active
+    // instance, update the runtime object too — otherwise the change only
+    // takes effect on their next join, which reads as "I set it and
+    // nothing happened" if they're mid-session right now.
+    const targetInstIdx = playerInstance.get(targetId);
+    if(targetInstIdx !== undefined){
+      const targetInst = instances.get(targetInstIdx);
+      const p = targetInst && targetInst.players[targetId];
+      if(p && p.characterId === msg.characterId){
+        p.level = level; p.xp = 0;
+        p.levelMult = levelStatMult(level);
+        recomputeMaxHp(p);
+      }
+    }
+    console.log(`[admin] ${id} set ${targetId}'s character ${msg.characterId} to level ${level}`);
+    sendOverview();
+    return;
+  }
+
+  if(msg.type === 'adminResetInstance'){
+    const dungeonIndex = Number(msg.dungeonIndex);
+    const inst = instances.get(dungeonIndex);
+    if(inst){
+      for(const pid in inst.players) resetPlayerForFreshRun(inst.players[pid], inst);
+      loadRoom(inst, 0);
+      console.log(`[admin] ${id} reset instance ${DUNGEONS[dungeonIndex].name}`);
+    }
+    sendOverview();
+    return;
+  }
+
+  if(msg.type === 'adminClearJoinLock'){
+    // Un-wedges an account stuck thinking it's "already active" in an
+    // instance — e.g. after an unclean disconnect the normal grace-period/
+    // reconnect flow didn't catch. Removes them from that instance (if
+    // they're still sitting in it) and clears the join lock so their next
+    // join attempt starts clean rather than being rejected.
+    const targetId = typeof msg.accountId === 'string' ? msg.accountId.toLowerCase() : '';
+    const targetInstIdx = playerInstance.get(targetId);
+    if(targetInstIdx !== undefined){
+      const targetInst = instances.get(targetInstIdx);
+      if(targetInst) delete targetInst.players[targetId];
+      playerInstance.delete(targetId);
+      console.log(`[admin] ${id} cleared join lock for ${targetId}`);
+    }
+    sendOverview();
+    return;
+  }
 }
 
 // ---------- COMBAT ----------
@@ -1261,6 +1366,25 @@ function damagePlayer(inst, player, dmg){
 // the moment has had a beat to land. Harmless if it fires more than once
 // for the same wipe (e.g. two players die in the same tick) — resetting
 // already-alive/full-HP players and reloading room 0 again is a no-op.
+// Shared by the automatic wipe-reset below and the admin "reset instance"
+// action (2026-08-26) — both mean the same thing: send this player back to
+// the dungeon's safe room at full health with no run-scoped state carried
+// over. A wipe is the "die" half of boons' "gone if you leave or die"
+// (§10) — reset before recomputeMaxHp so ironWill's HP bump doesn't
+// survive into the reset run.
+function resetPlayerForFreshRun(p, inst){
+  p.dead = false;
+  p.boonHpMult = 1; p.boonDmgMult = 1; p.boonSpeedMult = 1;
+  p.pendingBoonChoices = [];
+  recomputeMaxHp(p);
+  p.hp = p.maxHp;
+  if(p.maxMana) p.mana = p.maxMana;
+  p.reviveProgress = 0;
+  p.spawnProtection = SPAWN_GRACE;
+  const spot = pickSpawnPoint(inst);
+  p.x = spot.x; p.y = spot.y;
+}
+
 function checkForWipe(inst){
   const ids = Object.keys(inst.players);
   if(ids.length === 0) return;
@@ -1268,28 +1392,7 @@ function checkForWipe(inst){
   if(anyoneAliveAndConnected) return;
   console.log(`[wipe] the party has fallen in ${currentDungeon(inst).name} — resetting to the safe room`);
   setTimeout(()=>{
-    for(const id in inst.players){
-      const p = inst.players[id];
-      p.dead = false;
-      // A wipe is the "die" half of boons' "gone if you leave or die" (§10)
-      // — reset before recomputeMaxHp so ironWill's HP bump doesn't survive
-      // into the reset run.
-      p.boonHpMult = 1; p.boonDmgMult = 1; p.boonSpeedMult = 1;
-      p.pendingBoonChoices = [];
-      recomputeMaxHp(p);
-      p.hp = p.maxHp;
-      if(p.maxMana) p.mana = p.maxMana;
-      p.reviveProgress = 0;
-      p.spawnProtection = SPAWN_GRACE;
-      // Bug: this loop reset everything about a wiped player except where
-      // they actually are — they'd land back in the safe room logically
-      // (loadRoom(inst, 0) below) but stay rendered at whatever x/y they
-      // died at, possibly deep in a previous room, looking lost until they
-      // wandered back into range of anything. Same spawn-point picker
-      // join/reconnect already use.
-      const spot = pickSpawnPoint(inst);
-      p.x = spot.x; p.y = spot.y;
-    }
+    for(const id in inst.players) resetPlayerForFreshRun(inst.players[id], inst);
     loadRoom(inst, 0);
   }, 2000);
 }

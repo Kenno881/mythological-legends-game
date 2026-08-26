@@ -43,6 +43,7 @@ let ws = null;
 let myId = null;
 let myCharacters = []; // this account's saved roster (max 4, §8a) — from 'welcome' and refreshed by 'characterList'
 let myIsTest = false;
+let myIsAdmin = false; // Dad's account only (§8a) — gates the admin panel in main.js
 let resuming = false; // did this connection reattach to an existing character?
 let connStatus = "idle"; // "idle" | "connecting" | "open" | "closed"
 let latestState = null; // last {type:"state", ...} payload received
@@ -111,6 +112,7 @@ function attemptConnect(passphrase){
         resuming = !!msg.resuming;
         myCharacters = msg.characters || [];
         myIsTest = !!msg.isTest;
+        myIsAdmin = !!msg.isAdmin;
         myDungeonsCleared = msg.dungeonsCleared || [];
         console.log(`[net] welcome, id = ${myId}${resuming ? ' (resuming existing character)' : ''}`);
         clearTimeout(timeout);
@@ -140,6 +142,8 @@ function attemptConnect(passphrase){
         myDungeonsCleared = msg.dungeonsCleared || myDungeonsCleared;
         if(typeof onAudioState === 'function') onAudioState(msg);
         if(typeof onStateUpdate === 'function') onStateUpdate(msg);
+      } else if(msg.type === 'adminOverview'){
+        if(typeof onAdminOverview === 'function') onAdminOverview(msg);
       }
     });
   });
@@ -201,4 +205,27 @@ function sendChooseBoon(boonId){
 function myPlayer(){
   if(!latestState || !myId) return null;
   return latestState.players.find(p => p.id === myId) || null;
+}
+
+// ---------- ADMIN (§8a, Dad's account only — server re-checks isAdmin on
+// every one of these regardless of what this client claims) ----------
+function sendAdminGetOverview(){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'adminGetOverview' }));
+  return true;
+}
+function sendAdminSetLevel(accountId, characterId, level){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'adminSetLevel', accountId, characterId, level }));
+  return true;
+}
+function sendAdminResetInstance(dungeonIndex){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'adminResetInstance', dungeonIndex }));
+  return true;
+}
+function sendAdminClearJoinLock(accountId){
+  if(!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'adminClearJoinLock', accountId }));
+  return true;
 }
