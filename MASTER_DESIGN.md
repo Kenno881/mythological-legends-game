@@ -279,6 +279,26 @@ toward this, §9.
   fresh fetch** — this change prevents it recurring going forward, but
   doesn't retroactively un-stick a device already stuck on a stale cache
   from before the fix shipped.
+- **Safe-area (notch/status-bar) support, 2026-08-26 — reported live: "the
+  top of the screen is getting cut off by my status bar."** An installed
+  standalone PWA's web content isn't automatically guaranteed to avoid a
+  phone's status bar/notch — that only happens if the page opts in via
+  `viewport-fit=cover` (added to the viewport meta) and then actually
+  respects the resulting `env(safe-area-inset-*)` CSS values, which this
+  page wasn't doing at all before. Fixed by padding `#app` with the safe
+  -area insets on all 4 sides — global `box-sizing:border-box` (already
+  in place) keeps `#app`'s own box at exactly the full viewport size, so
+  this only shrinks the *content* area the flex-centered `#stage` centers
+  into, naturally clearing the status bar using whatever letterbox slack
+  already exists. `#stage`'s own width/height budgets also subtract the
+  same insets directly (not just relying on the padding above), so its
+  max size can't still be too tall/wide to fit even on a device where the
+  inset eats more than the existing slack. Verified the CSS is valid and
+  the zero-inset case (this dev environment, no real notch to trigger it)
+  renders pixel-identical to before — the actual notch-clearing behavior
+  needs a real notched/status-bar device to fully confirm, same
+  limitation as every other "how does this look on a real phone" item
+  this session.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a

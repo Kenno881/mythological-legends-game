@@ -19,16 +19,32 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--stone-
      touch stick near a screen edge on a tablet can trigger the browser's
      own pan/bounce/refresh gesture instead of just moving the character. */
   touch-action:none; overscroll-behavior:none;}
-#app{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+/* safe-area-inset-* only become non-zero with viewport-fit=cover
+   (camelot-crawler.html's viewport meta) — without it these are always
+   0px, harmless no-ops. Padding #app (not #stage) so the existing global
+   box-sizing:border-box keeps #app's own box at exactly 100%/100% of the
+   viewport; the flex-centered #stage below just has less content-box
+   room to center into, naturally clearing a status bar/notch on an
+   installed PWA (reported live: top of the screen getting cut off by the
+   phone's status bar) without needing device-specific numbers. */
+#app{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+          env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);}
 /* Fills as much of the actual screen as possible while keeping the
    canvas's fixed 1000x750 (4:3) aspect ratio intact — scaling to
    100%/100% directly would stretch every sprite/circle out of shape on
    any non-4:3 screen. min() picks whichever axis is the tighter fit;
    any leftover margin is the same --stone-dark as the page behind it,
-   so it reads as filling the screen rather than as visible letterboxing. */
+   so it reads as filling the screen rather than as visible letterboxing.
+   The vh/vw budgets also subtract the safe-area insets directly (not
+   just relying on #app's padding above) so the stage's own max size
+   can't still be too tall/wide to fit even after centering, on a device
+   where the inset eats more than #app's existing letterbox slack. */
 #stage{position:relative;
-  width:min(100vw, calc(100vh * 4 / 3));
-  height:min(100vh, calc(100vw * 3 / 4));
+  width:min(calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)),
+            calc((100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)) * 4 / 3));
+  height:min(calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)),
+             calc((100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)) * 3 / 4));
   background:var(--stone-dark);box-shadow:0 0 60px rgba(0,0,0,.6);}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 
