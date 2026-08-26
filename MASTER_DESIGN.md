@@ -1418,6 +1418,89 @@ two-caster-vs-one family session; retune if duo play still isn't the
 
 ---
 
+## 9a. Dungeon Authoring Template — extracted from Sherwood
+
+**Not yet validated by real play.** Everything below is extracted from
+what Sherwood Approach's own build-up (§9) actually turned into by the
+time its hub-and-spoke, backtracking, and directional-door passes landed
+— it's a real, working pattern, not a guess. But no dungeon built this
+way has been through an actual family session yet. Hold off building
+dungeon 2 from this template until a real Sherwood playthrough with the
+family confirms which parts of the current pattern are actually fun
+versus which need adjusting first — see §13.
+
+### Reusable / mechanical (Claude Code can generate this scaffolding for any new dungeon from a spec)
+
+- **Room count and hub-and-spoke shape.** N doors per hub, authored as a
+  room's `doors` array (`js/data.js`, each entry `{to, exit, label,
+  dir}`) — `dir` is the compass wall a door renders on, authored per-door
+  rather than derived from grid position, so doors from different rooms
+  can converge on the same destination (e.g. a hub door and two
+  side-chamber return doors all reaching the boss room) with no
+  contradiction. `doorsFor()` (`server.js`) falls back to a single
+  synthesized default door for any room with no explicit `doors`, so
+  older single-branch rooms keep working untouched. `grid` (a `{x,y}`
+  per room) drives the minimap the client builds as rooms are visited —
+  continue whatever coordinate convention the existing hub already
+  established (e.g. new hubs extending east/west from `{0,0}`) rather
+  than inventing a new one per dungeon.
+- **Wall/collision geometry.** `walls` (axis-aligned rectangles) per
+  room, resolved by `moveWithWalls`/`hitsAnyWall`/`circleHitsRect`
+  (`server.js`) for players; monster wall-steering (`wallAwareGoal()`)
+  already makes mobs path around geometry instead of beelining through
+  it. Both are dungeon-agnostic — a new dungeon just supplies its own
+  `walls` arrays per room.
+- **Level-gating band.** `minLevel`/`xpCapLevel` on the dungeon (§5/§10),
+  following the existing overlapping-band convention — a dungeon's
+  `minLevel` sits below the previous one's `xpCapLevel`, so nothing needs
+  fully maxing out before the next unlocks. The mechanism is drop-in;
+  only where this specific dungeon sits in the campaign's level curve
+  needs deciding.
+- **Gear-roll wiring.** The same `TRASH_GEAR_DROP_CHANCE` per-kill roll,
+  guaranteed side-chamber/room-clear bonus drop, and
+  boss-guarantees-its-own-artifact-plus-a-weapon/armor-token pattern
+  (`dropLoot`) — a new dungeon's monsters/bosses just need entries in
+  `ENEMY_TYPES`/`ARTIFACTS`, no new drop logic to write.
+- **Mini-boss, rare/named variant, and artifact slots.** All three are
+  generic mechanisms waiting on specific content: a mini-boss reuses the
+  shared slam-cleave fields (`slamCd`/`slamRadius`/`slamDmg`/
+  `slamTelegraph`, optionally `slamStunDur` for a stun-CC variant) on any
+  monster entry; a rare boss variant is a `rareVariant: {type, chance}`
+  on the boss room, rolled once at load; an artifact is one `ARTIFACTS`
+  entry keyed to a `bossType`. The roll chances, stat multipliers, and
+  drop wiring are all reusable as-is — only *who* each of these actually
+  is needs a person (see below).
+- **Backtracking and door-pairing conventions.** A return door is just a
+  second `doors` entry on the destination room, pointing back with the
+  compass-opposite `dir` from the one that reached it —
+  `doorsFor()`/`DOOR_SPOT`/`drawGate` are already fully generic over door
+  count, nothing new to build. `inst.clearedRooms` (a `Set`) skips the
+  fight and reopens doors instantly on a revisit. Room-clear gate
+  behavior itself (`tickRoomExit()`'s kill-quota/all-dead trigger) is
+  shared and dungeon-agnostic already.
+
+### Not reusable — needs real creative input every time, don't try to templatize
+
+- **The dungeon's lore** (why/objective/reward, shown on its
+  dungeon-select card) and any per-room flavor text.
+- **The specific folklore figure and their boss mechanic** — what makes
+  them feel distinct, not just a stat bump, the way the Black Knight's
+  Fear or the Bandit Captain's slam-stun do. §5's idea bank (Green
+  Knight regrowth, Mordred's summoned adds, Queen Mab's illusion/charm,
+  the Lambton Worm's segmented targeting) is where these come from; none
+  of it templatizes.
+- **The artifact's name and passive effect**, and why it fits that
+  boss's own legend (Ford-Warden's Buckler blocking a hit ties directly
+  to a knight who guards a ford — that link has to be authored, not
+  generated).
+- **Exact difficulty numbers.** Start from the existing pattern (the
+  second difficulty pass's own logic — countering roughly what a
+  character gains for free from leveling at this dungeon's level band,
+  §6) rather than from scratch, but the result still needs real eyes on
+  it before it's trustworthy, same as every numeric pass so far.
+
+---
+
 ## 10. Character Progression — Permanent Levels + Temporary Boons (First slice shipped 2026-08-25)
 
 **Decided: this is a persistent D&D-style campaign, not a roguelite.**
@@ -1805,6 +1888,8 @@ as-is regardless of the run-model change)*
   (2026-08-24, before party-scaling shipped) and a simulated 4-player one
   (same day, after) both happened, but neither is a real family session
   with actual tactical play — still needs one to actually judge (§9)
+- Validate the dungeon authoring template against real family feedback
+  on Sherwood before applying it to dungeon 2 (§9a)
 
 ### Decided (kept here for reference, not deleted once resolved)
 - Dungeons are level-gated and sequential — no jumping to Mordred's Keep
