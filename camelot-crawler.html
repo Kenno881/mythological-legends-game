@@ -23,6 +23,25 @@
 
   <div id="rotateHint"><div class="icon">📱</div><div>Turn your device sideways for a bigger view</div></div>
 
+  <!-- SOUND SETTINGS — a per-device preference, not a per-run one (2026-08-27,
+       user request): four family members each bring their own device to the
+       same table, and js/audio.js's generative music has no shared clock
+       across devices, so four copies running at once just becomes noise.
+       Lives outside every .screen so it's reachable no matter which screen
+       is showing; see js/audio.js's setSfxVolume/setMusicVolume. -->
+  <button id="btnSoundSettings" type="button" aria-label="Sound settings">🔊</button>
+  <div id="soundPanel" class="hidden">
+    <div class="sound-row">
+      <label for="musicVolumeSlider">Music</label>
+      <input type="range" id="musicVolumeSlider" min="0" max="100" value="100">
+    </div>
+    <div class="sound-row">
+      <label for="sfxVolumeSlider">Sound Effects</label>
+      <input type="range" id="sfxVolumeSlider" min="0" max="100" value="100">
+    </div>
+    <button class="btn secondary" id="btnSoundPanelClose" type="button">Close</button>
+  </div>
+
   <!-- TITLE -->
   <div id="screen-title" class="screen">
     <img src="assets/sprites/title_screen.png" alt="" class="title-banner">

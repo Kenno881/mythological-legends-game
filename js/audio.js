@@ -11,13 +11,39 @@
 let audioCtx = null;
 let masterGain = null;
 
+const SFX_BASE_GAIN = 0.35;
+
+// Per-device volume preferences (2026-08-27, user request): four family
+// members each bring their own device to the same table, and the
+// generative background music (below) has no shared clock across devices —
+// four independent copies running at once just becomes noise. These are
+// multipliers (0-1) on top of the existing baseline gains, stored in
+// localStorage so each device remembers its own mix. Read once at load;
+// setSfxVolume/setMusicVolume (called from the sound-settings UI in
+// main.js) update both the live gain node and the stored value.
+function loadVolumePref(key){
+  const raw = localStorage.getItem(key);
+  const n = raw === null ? 1 : Number(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1;
+}
+let sfxVolume = loadVolumePref('camelotSfxVolume');
+let musicVolume = loadVolumePref('camelotMusicVolume');
+
+function setSfxVolume(v){
+  sfxVolume = Math.max(0, Math.min(1, v));
+  localStorage.setItem('camelotSfxVolume', String(sfxVolume));
+  if(masterGain) masterGain.gain.value = SFX_BASE_GAIN * sfxVolume;
+}
+function getSfxVolume(){ return sfxVolume; }
+function getMusicVolume(){ return musicVolume; }
+
 function ensureAudioCtx(){
   if(audioCtx) return audioCtx;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if(!Ctx) return null;
   audioCtx = new Ctx();
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.35;
+  masterGain.gain.value = SFX_BASE_GAIN * sfxVolume;
   masterGain.connect(audioCtx.destination);
   return audioCtx;
 }
@@ -254,11 +280,24 @@ function startMusic(){
   if(!ctx || musicStarted) return;
   musicStarted = true;
   musicGain = ctx.createGain();
-  musicGain.gain.value = MUSIC_GAIN_LEVEL;
+  musicGain.gain.value = MUSIC_GAIN_LEVEL * musicVolume;
   musicGain.connect(ctx.destination);
   musicNextNoteTime = ctx.currentTime + 0.1;
   musicBeatCount = 0;
   musicSchedulerTimer = setInterval(musicSchedulerTick, 100);
+}
+
+function setMusicVolume(v){
+  musicVolume = Math.max(0, Math.min(1, v));
+  localStorage.setItem('camelotMusicVolume', String(musicVolume));
+  if(musicGain){
+    const ctx = ensureAudioCtx();
+    // Matches the visibilitychange duck logic below — if the tab happens to
+    // be hidden, stay silent rather than blip audible while backgrounded;
+    // the next visibilitychange picks up this new musicVolume regardless.
+    const target = document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume;
+    musicGain.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
+  }
 }
 
 // Duck to silent (not stop/restart — that would need re-deriving the beat
@@ -267,7 +306,7 @@ function startMusic(){
 document.addEventListener('visibilitychange', ()=>{
   if(!musicGain) return;
   const ctx = ensureAudioCtx();
-  musicGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL, ctx.currentTime, 0.3);
+  musicGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume, ctx.currentTime, 0.3);
 });
 
 // ---------- STATE DIFFING ----------

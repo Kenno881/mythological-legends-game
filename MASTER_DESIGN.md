@@ -464,6 +464,26 @@ toward this, §9.
   sizing (9.5px label font, wrapping enabled, inside the existing 76px
   circular button) is reasoned-through rather than eyeballed — worth an
   actual look on a real device before calling it done.
+- **Sound settings, 2026-08-27 — user request ahead of the first family
+  weekend session.** With four family members each on their own device at
+  the same physical table, `js/audio.js`'s generative background music has
+  no shared clock across devices, so four independent copies running at
+  once just becomes noise. Added a speaker button (top-right, every
+  screen, outside the `.screen` divs since it's a per-device preference
+  rather than a per-run one) opening a small panel with Music and Sound
+  Effects volume sliders. Both are multipliers on the existing baseline
+  gains (`SFX_BASE_GAIN`, `MUSIC_GAIN_LEVEL`), stored per-device in
+  `localStorage` (`camelotMusicVolume`/`camelotSfxVolume`) so each phone/
+  tablet remembers its own mix across sessions; default is 100% (no
+  behavior change until someone touches a slider). Confirmed live: SFX
+  slider updates `masterGain` immediately; music slider persists and
+  correctly reseeds the panel on reload; the live music-gain ramp
+  (`setTargetAtTime`) couldn't be exercised end-to-end in this sandboxed
+  browser since it reports the tab as backgrounded (`document.hidden`),
+  which the code treats the same as a real backgrounded tab (stays
+  silent, picks up the new volume on the next real visibilitychange) —
+  worth a quick real-device check that dragging the music slider is
+  actually audible immediately, not just on the next tab switch.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at

@@ -614,3 +614,22 @@ function switchAccount(){
 document.getElementById('btnLeave').addEventListener('click', switchAccount);
 document.getElementById('btnSwitchAccountChars').addEventListener('click', switchAccount);
 document.getElementById('btnSwitchAccountDungeons').addEventListener('click', switchAccount);
+
+// ---------- SOUND SETTINGS ----------
+// Per-device volume prefs live in js/audio.js (localStorage-backed); this
+// just wires the panel's sliders to them and seeds the sliders' starting
+// position from whatever was saved last time this device opened the game.
+const soundPanel = document.getElementById('soundPanel');
+const musicVolumeSlider = document.getElementById('musicVolumeSlider');
+const sfxVolumeSlider = document.getElementById('sfxVolumeSlider');
+musicVolumeSlider.value = Math.round(getMusicVolume() * 100);
+sfxVolumeSlider.value = Math.round(getSfxVolume() * 100);
+
+document.getElementById('btnSoundSettings').addEventListener('click', ()=>{
+  soundPanel.classList.toggle('hidden');
+});
+document.getElementById('btnSoundPanelClose').addEventListener('click', ()=>{
+  soundPanel.classList.add('hidden');
+});
+musicVolumeSlider.addEventListener('input', ()=> setMusicVolume(musicVolumeSlider.value / 100));
+sfxVolumeSlider.addEventListener('input', ()=> setSfxVolume(sfxVolumeSlider.value / 100));
