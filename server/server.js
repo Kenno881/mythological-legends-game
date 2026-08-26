@@ -502,6 +502,96 @@ function moveWithWalls(p, dx, dy, walls){
   if(!hitsAnyWall(p.x, ny, p.radius, walls)) p.y = ny;
 }
 
+// Monster steering around walls (2026-08-26) — monsters previously ignored
+// `walls` entirely (no collision at all, straight-line chase clipped
+// visually through them) since move-toward-target has no reason to know
+// about obstacles on its own. Not full pathfinding (no guaranteed-shortest
+// route, no help in a real maze of concave geometry) — a lightweight
+// "steer around the near corner of whichever single wall is actually in
+// the way" heuristic, recomputed fresh every tick rather than a stored
+// path, which is genuinely enough for this game's walls so far (a
+// handful of sparse rectangles per room, never a dense maze) and keeps
+// monster AI exactly as simple as it's ever been. Revisit with something
+// heavier only if/when a room's geometry actually needs it.
+function segmentIntersectsRect(x1, y1, x2, y2, rect){
+  let tmin = 0, tmax = 1;
+  const dx = x2 - x1, dy = y2 - y1;
+  if(dx === 0){
+    if(x1 < rect.x || x1 > rect.x + rect.w) return false;
+  } else {
+    let t1 = (rect.x - x1) / dx, t2 = (rect.x + rect.w - x1) / dx;
+    if(t1 > t2){ const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if(tmin > tmax) return false;
+  }
+  if(dy === 0){
+    if(y1 < rect.y || y1 > rect.y + rect.h) return false;
+  } else {
+    let t1 = (rect.y - y1) / dy, t2 = (rect.y + rect.h - y1) / dy;
+    if(t1 > t2){ const tmp = t1; t1 = t2; t2 = tmp; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if(tmin > tmax) return false;
+  }
+  return true;
+}
+// The waypoint is "the target's own y, but at whichever edge of the
+// wall's x-range is closer to the mover" — not just the nearest corner.
+// A first version aimed straight at the nearest corner and got monsters
+// stuck oscillating just past it: for a wall that spans most of the
+// room's width (this game's so far), reaching a corner doesn't actually
+// clear line-of-sight — the direct line from there to the target dips
+// back into the wall's y-band further along, since the corner is only
+// barely past the wall's edge, not past its full extent. Matching the
+// target's y *before* crossing the wall's x-range sidesteps that
+// entirely: the move to this waypoint never enters the wall's x-range at
+// all (mover and waypoint are both on the same side), and the subsequent
+// move from waypoint to target holds y roughly constant at the target's
+// own y — which can't be inside the wall's band, since the target is
+// standing there right now.
+function pickWallDetour(mx, my, tx, ty, rect, radius){
+  const pad = (radius || 16) + 15;
+  const leftX = rect.x - pad, rightX = rect.x + rect.w + pad;
+  // "Closer edge by raw distance" isn't enough on its own — Sherwood's
+  // room 1 walls span almost the full room width, so their right edge
+  // sits right against the room's own outer border: not a real route
+  // around, a dead end. Only actually route toward an edge that's still
+  // inside the room; if only one side qualifies, use that one regardless
+  // of which is numerically closer (confirmed needed live: without this,
+  // a monster starting mid-lane picked the "closer" but unusable right
+  // edge and walked straight through the wall trying to reach it).
+  const leftValid = leftX > 20, rightValid = rightX < W - 20;
+  const isLeft = leftValid && rightValid ? Math.abs(mx - leftX) < Math.abs(mx - rightX) : leftValid;
+  const edgeX = isLeft ? leftX : rightX;
+
+  // Two phases, decided fresh from current position every tick (no
+  // stored path needed): first clear the wall's x-range entirely via a
+  // PURE horizontal move (y unchanged) — provably safe regardless of the
+  // wall's length, since a horizontal line at a y outside the wall's
+  // y-band can never cross it no matter how far it travels in x. Only
+  // once actually past the wall's edge does it start aligning y, now
+  // moving vertically at x pinned to edgeX — also provably safe, since
+  // that x is by construction outside the wall's x-range for the whole
+  // move. Aiming straight at one combined (edgeX, target-y) waypoint in
+  // a single diagonal step (the first version of this) cuts close enough
+  // to the wall's corner during transit that no amount of padding alone
+  // reliably keeps a large-radius monster from grazing it — confirmed
+  // live, this two-phase version doesn't.
+  const alreadyClearOfWall = isLeft ? mx <= edgeX : mx >= edgeX;
+  if(!alreadyClearOfWall) return { x: edgeX, y: my };
+  return { x: edgeX, y: ty };
+}
+// Returns {x,y} to actually steer toward this tick — the real target if
+// the direct line to it is clear, otherwise a detour corner around
+// whichever wall is in the way (first one found; this game's rooms don't
+// have enough walls yet for "which of several" to matter).
+function wallAwareGoal(mx, my, tx, ty, walls, radius){
+  if(!walls || walls.length === 0) return { x: tx, y: ty };
+  for(const w of walls){
+    if(segmentIntersectsRect(mx, my, tx, ty, w)) return pickWallDetour(mx, my, tx, ty, w, radius);
+  }
+  return { x: tx, y: ty };
+}
+
 function advanceToNextRoom(inst){
   if(inst.roomIndex + 1 < currentDungeon(inst).rooms.length) loadRoom(inst, inst.roomIndex + 1);
 }
@@ -1469,8 +1559,10 @@ function tickMonsters(inst, dt){
     const d = Math.hypot(target.x - mon.x, target.y - mon.y);
     if(mon.slamState !== 'telegraph' && !mon.chargeState && mon.fearState !== 'telegraph'){
       if(d > mon.range * 0.7){
-        mon.x += (target.x - mon.x) / d * mon.speed * dt;
-        mon.y += (target.y - mon.y) / d * mon.speed * dt;
+        const walls = currentRoom(inst).walls;
+        const goal = wallAwareGoal(mon.x, mon.y, target.x, target.y, walls, mon.radius);
+        const gd = Math.hypot(goal.x - mon.x, goal.y - mon.y) || 1;
+        moveWithWalls(mon, (goal.x - mon.x) / gd * mon.speed * dt, (goal.y - mon.y) / gd * mon.speed * dt, walls);
       } else {
         mon.cd -= dt;
         if(mon.cd <= 0){

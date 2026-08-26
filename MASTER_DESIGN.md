@@ -326,6 +326,32 @@ toward this, §9.
   into "Forest Crossroads," 3 real corridors off a hub instead of two exit
   gates floating in one open field. The collision primitive itself is
   reusable by any room going forward, not bespoke to this one.
+- **Monster wall-steering, 2026-08-26 — reported live: "walls that do work
+  on characters, but mobs are unaffected by them."** Monsters previously
+  had zero wall awareness at all (not even collision, let alone routing)
+  — a straight-line chase just clipped visually through geometry. Not full
+  pathfinding (no help in a real maze of concave shapes), but a
+  provably-safe two-phase steering heuristic for this game's actual wall
+  shape (sparse, room-spanning rectangular bands): when the direct line to
+  the target is blocked, first slide purely horizontally until clear of
+  the wall's x-range (can't clip it — the move never changes y), then
+  align vertically at that now-safe x (also can't clip it — that x is by
+  construction outside the wall's x-range for the whole move). Recomputed
+  fresh every tick, no stored path. Verification found and fixed two real
+  bugs on the way, not just a live report: a "closer edge by raw
+  distance" version sent a monster straight through the wall it was
+  trying to route around, because the wall's right edge coincides with
+  the room's own outer border — not a real route, a dead end; and a
+  single-diagonal-waypoint version reliably grazed the wall's corner
+  during transit regardless of clearance padding, which the two-phase
+  split (proven safe per-phase, not just at the final destination)
+  eliminates outright. Confirmed via a deterministic simulation (not
+  live-timing-dependent, given how much faster a leveled-up test
+  character kills trash than a fresh one) replaying the server's actual
+  functions verbatim across 5 scenarios — hub-to-lane, mid-lane-to-
+  different-lane, no-wall-direct, the largest monster in the game
+  (Questing Beast, radius 30), and the hardest case (routing around both
+  of room 1's walls in sequence) — zero wall clips in any of them.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -338,11 +364,6 @@ toward this, §9.
   system generally, just the guaranteed-vs-35%-chance drop rule.
 - Threat is "nearest player, unless taunted" — no accumulating threat table,
   so healing doesn't pull aggro the way it would on a real threat system.
-- Monsters don't path around walls (§9's new wall-collision system) — still
-  simple move-toward-target. Fine for room 1's current layout (enemies are
-  placed so it doesn't matter), but a room whose walls are meant to matter
-  tactically, not just navigationally, would need real pathfinding.
-
 ### Not started (new direction)
 - The Wilds (horde mode).
 - Currency/unlocks meta-progression — the persistence and account layer
