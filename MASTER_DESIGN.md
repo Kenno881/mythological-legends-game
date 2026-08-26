@@ -229,6 +229,28 @@ toward this, §9.
   it recurs, Railway's Deploy Logs should now show a clear `[tick]` or
   `[message]` error with a stack trace instead of the process just going
   silent, which is what actually lets it get fixed for good next time.
+- **Client-side render-loop crash containment, 2026-08-26 — likely the
+  actual root cause of "the grey screen bug once more."** A real browser
+  console paste caught it directly: `Uncaught ReferenceError: state is
+  not defined at renderLoop (render.js:591)`. `js/render.js`'s
+  `renderLoop()` re-arms itself via `requestAnimationFrame(renderLoop)` as
+  the *last* line of the function — meaning if anything above it threw
+  (here, apparently a load-order/timing race where `state`, defined in
+  main.js, wasn't ready yet on the very first frame), that last line
+  simply never ran. No error shown to the player, nothing left to retry —
+  the render loop was dead forever, on whatever frame happened to be on
+  screen when it died. This is likely a better explanation for the
+  reported symptom than the server-side crash-containment fix above: it
+  explains a *permanently frozen client* with a *fine, unaffected server*,
+  which fits "grey screen" more precisely. Fixed the same way as the
+  server-side version: the risky work is now inside a try/catch, with
+  `requestAnimationFrame(renderLoop)` unconditionally after it — a bad
+  frame gets logged and skipped, and the very next frame (~16ms later)
+  tries again instead of the whole client dying for the rest of the
+  session. Confirmed the fix's correctness by direct inspection (this is
+  guaranteed JS control flow, not something that needs a live repro to be
+  certain of) and confirmed no regression to normal rendering via a real
+  playthrough afterward.
 - **Installable PWA — manifest + service worker, 2026-08-25 (never
   actually written up in this doc until the bug below forced the issue).**
   `manifest.json` (standalone display, landscape orientation, icons

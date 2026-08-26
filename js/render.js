@@ -588,12 +588,28 @@ function draw(s){
 // snapshot is. No interpolation/prediction yet; add it only if the plain
 // 20Hz-snapshot look turns out to be a problem in practice.
 function renderLoop(){
-  if(state === 'game' && latestState){
-    checkRoomTransition(latestState);
-    checkBranchTransition(latestState);
-    updateHud(latestState);
-    updateRoster(latestState);
-    draw(latestState);
+  // A single bad frame must never permanently kill rendering. Before this,
+  // an uncaught exception anywhere in the block below (e.g. `state` briefly
+  // undefined on the very first frame, if main.js hadn't quite finished
+  // initializing yet by the time this file's first requestAnimationFrame
+  // call landed) meant this function returned via the exception *before*
+  // reaching requestAnimationFrame(renderLoop) below — the loop never
+  // rearmed itself, so the game froze on whatever was last drawn, forever,
+  // with nothing in the UI to show anything had gone wrong. Confirmed live
+  // 2026-08-26: exactly this ("Uncaught ReferenceError: state is not
+  // defined at renderLoop"). Now: log and skip this one frame, try again
+  // next frame — self-heals within ~16ms once the transient cause clears,
+  // instead of never recovering at all.
+  try {
+    if(state === 'game' && latestState){
+      checkRoomTransition(latestState);
+      checkBranchTransition(latestState);
+      updateHud(latestState);
+      updateRoster(latestState);
+      draw(latestState);
+    }
+  } catch (err) {
+    console.error('[render] frame error (skipped, retrying next frame):', err);
   }
   requestAnimationFrame(renderLoop);
 }
