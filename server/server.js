@@ -382,6 +382,7 @@ function spawnMonster(inst, type, x, y, hpScale){
 function loadRoom(inst, idx){
   inst.roomIndex = idx;
   inst.branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
+  inst.roomState = null; // any cleared-room exit gate is moot whenever a fresh room loads
   inst.waveState = null;
   if(idx === 1){ inst.dungeonStartedAt = Date.now(); inst.dungeonKillCount = 0; } // idx 0 is always the safe room — the real run starts on leaving it
   const dungeon = currentDungeon(inst);
@@ -477,6 +478,23 @@ const BRANCH_RETURN_EXIT = { x: W - 100, y: H / 2, r: 45 };
 function mainExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.main) || BRANCH_MAIN_EXIT; }
 function sideExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.side) || BRANCH_SIDE_EXIT; }
 function returnExitFor(inst){ return (currentRoom(inst).exits && currentRoom(inst).exits.return) || BRANCH_RETURN_EXIT; }
+
+// A plain (non-branch, non-boss) room's exit(s) once it's cleared —
+// Binding of Isaac-style "clear the room, a door opens" (MASTER_DESIGN.md
+// §9, 2026-08-26): the room used to auto-advance the whole party on a
+// blind 1400ms timer with nothing to actually walk to. A room can define
+// its own `doors` (2026-08-26's hub-and-spoke pass) — an array of
+// `{to, exit, label, color}`, `to` being this dungeon's own room index, not
+// necessarily +1 — to open more than one real direction at once. Every
+// room that doesn't opt into that keeps today's exact single-gate
+// behavior: a synthesized one-door array pointing at roomIndex+1, reusing
+// the same centered gate spot the safe room/branch-return gate already sit
+// at, and the same `exits.main` room override branch rooms use.
+function doorsFor(inst){
+  const room = currentRoom(inst);
+  if(room.doors) return room.doors;
+  return [{ to: inst.roomIndex + 1, exit: (room.exits && room.exits.main) || BRANCH_RETURN_EXIT, label: 'Continue on' }];
+}
 
 function someoneAt(inst, spot){
   return Object.values(inst.players).some(p => !p.dead && Math.hypot(p.x - spot.x, p.y - spot.y) < spot.r);
@@ -1293,12 +1311,37 @@ function hitMonster(inst, mon, dmg, killerId){
 // that maxed both weapon and armor well inside one dungeon clear, which
 // defeats the point of gear being a persistent-campaign progression
 // (MASTER_DESIGN.md's permanent-levels-and-gear decision). Dropped to
-// 0.12 (2026-08-25) so a full dungeon clear meaningfully advances gear
-// without maxing it out solo in one run.
-const TRASH_GEAR_DROP_CHANCE = 0.12;
+// 0.12 (2026-08-25). Raised to 0.20 (2026-08-26, alongside the tier-roll
+// below) — a "drop" is no longer a guaranteed upgrade, so seeing one more
+// often is fine now that it doesn't automatically max gear out.
+const TRASH_GEAR_DROP_CHANCE = 0.20;
+
+// Weapon/armor loot used to be a guaranteed +1 tier on pickup — every
+// "drop" was really just an invisible stat counter, nothing to actually
+// find. 2026-08-26: every weapon/armor drop now rolls its own tier
+// (weighted toward the common end, same shape for both ladders since both
+// currently have 4 tiers — js/data.js's WEAPON_TIERS/ARMOR_TIERS), and
+// only replaces your equipped tier if it actually rolled higher. A roll
+// that doesn't beat what you're already carrying gets melted down for a
+// little family currency instead of just vanishing — see applyLootPickup.
+// "Guaranteed drop" (a side chamber, a boss token) now means guaranteed a
+// roll, not a guaranteed upgrade — matches the tougher rooms still feeling
+// worth it on average without making the top tier a sure thing.
+const GEAR_DROP_WEIGHTS = [50, 30, 15, 5]; // index = tier; Excalibur/Aegis is the 5% tail
+const SALVAGE_CURRENCY_BASE = 3, SALVAGE_CURRENCY_PER_TIER = 2;
+function rollGearTier(){
+  const total = GEAR_DROP_WEIGHTS.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  for(let i = 0; i < GEAR_DROP_WEIGHTS.length; i++){
+    if(roll < GEAR_DROP_WEIGHTS[i]) return i;
+    roll -= GEAR_DROP_WEIGHTS[i];
+  }
+  return GEAR_DROP_WEIGHTS.length - 1;
+}
 function randomGearKind(){ return Math.random() < 0.5 ? 'weapon' : 'armor'; }
 function pushGearLoot(inst, x, y, kind, artifactId){
-  inst.loot.push({ id: 'l' + (++lootSeq), x, y, taken: false, kind, artifactId: artifactId || null });
+  const tier = (kind === 'weapon' || kind === 'armor') ? rollGearTier() : null;
+  inst.loot.push({ id: 'l' + (++lootSeq), x, y, taken: false, kind, artifactId: artifactId || null, tier });
 }
 
 function dropLoot(inst, mon){
@@ -1313,9 +1356,11 @@ function dropLoot(inst, mon){
     }
     return;
   }
-  // Guaranteed drop inside a side chamber — that's the whole point of the
-  // harder detour (see js/data.js's sideChamber.warningText).
-  if(inst.branchState === 'in_side_chamber' || Math.random() < TRASH_GEAR_DROP_CHANCE){
+  // Guaranteed drop inside a side chamber, or a standalone room flagged
+  // `guaranteedLoot` (js/data.js — 2026-08-26's hub-and-spoke pass promoted
+  // the Poacher's Den out of `sideChamber`, so `branchState` alone no
+  // longer covers it) — that's the whole point of the harder detour.
+  if(inst.branchState === 'in_side_chamber' || currentRoom(inst).guaranteedLoot || Math.random() < TRASH_GEAR_DROP_CHANCE){
     pushGearLoot(inst, mon.x, mon.y, randomGearKind());
   }
 }
@@ -1503,6 +1548,22 @@ function tickBranch(inst){
   }
 }
 
+// Drives a plain (non-branch, non-boss) room's exit gate(s) once it's
+// cleared — see the 'awaiting_exit' assignment in tickMonsters() and
+// doorsFor(). Loads whichever door's target directly (not
+// advanceToNextRoom() — a door's `to` isn't necessarily roomIndex+1 once a
+// room defines real `doors`, e.g. the hub's three-way choice).
+function tickRoomExit(inst){
+  if(inst.roomState !== 'awaiting_exit') return;
+  for(const door of doorsFor(inst)){
+    if(someoneAt(inst, door.exit)){
+      inst.roomState = null;
+      loadRoom(inst, door.to);
+      return;
+    }
+  }
+}
+
 // A dead player only comes back by having an alive, connected teammate
 // hold near them for REVIVE_CHANNEL_SECONDS — see the REVIVE/WIPE note at
 // the top of this file. Leaving range resets progress immediately rather
@@ -1685,7 +1746,7 @@ function tickMonsters(inst, dt){
   if(allDead && Object.keys(inst.monsters).length > 0 && !inst.advancing && !waveStillGoing){
     if(inst.branchState === 'in_side_chamber'){
       inst.branchState = 'side_cleared_awaiting_return'; // wait for a player to walk to the return gate — see tickBranch()
-    } else if(inst.branchState === null && !currentRoom(inst).boss){
+    } else if(inst.branchState === null && inst.roomState === null && !currentRoom(inst).boss){
       if(currentRoom(inst).branch){
         inst.branchState = 'awaiting_choice'; // fork: don't auto-advance, wait for a gate choice — see tickBranch()
         // Secret nook (js/data.js's `secretNook`, real spatial exploration —
@@ -1696,11 +1757,16 @@ function tickMonsters(inst, dt){
         const nook = currentRoom(inst).secretNook;
         if(nook) pushGearLoot(inst, nook.x, nook.y, randomGearKind());
       } else {
-        inst.advancing = true;
-        setTimeout(()=>{
-          inst.advancing = false;
-          advanceToNextRoom(inst);
-        }, 1400);
+        // Binding of Isaac-style room clear (MASTER_DESIGN.md §9,
+        // 2026-08-26) — a gate opens rather than the party getting blindly
+        // teleported on a timer. See tickRoomExit().
+        inst.roomState = 'awaiting_exit';
+        // One guaranteed drop on top of the normal per-kill rolls, once
+        // (js/data.js's `clearBonusLoot` — the Sunken Trail, since it
+        // became an optional hub door 2026-08-26) — same "guaranteed find"
+        // shape as Forest Crossroads' secretNook, not a per-kill guarantee
+        // across 14+ kills, which would undercut the tier-roll system.
+        if(currentRoom(inst).clearBonusLoot) pushGearLoot(inst, W / 2, H / 2, randomGearKind());
       }
     }
   }
@@ -1775,11 +1841,16 @@ function tickProjectiles(inst, dt){
 // already owned is a harmless no-op (still consumed off the ground, no
 // duplicate) — simplest handling, no need to special-case "don't spawn it
 // again" server-side.
+// Weapon/armor pickups jump straight to the rolled tier (js/data.js's
+// pushGearLoot) rather than always stepping +1 — only if that tier is
+// actually better than what's equipped. A roll that isn't an upgrade
+// melts down into a bit of family currency instead of doing nothing, so
+// picking it up still means something even when it isn't a new item.
 function applyLootPickup(player, l){
-  if(l.kind === 'weapon'){
-    if(player.weaponTier < WEAPON_TIERS.length - 1) player.weaponTier++;
-  } else if(l.kind === 'armor'){
-    if(player.armorTier < ARMOR_TIERS.length - 1) player.armorTier++;
+  if(l.kind === 'weapon' || l.kind === 'armor'){
+    const field = l.kind === 'weapon' ? 'weaponTier' : 'armorTier';
+    if(l.tier > player[field]) player[field] = l.tier;
+    else db.addFamilyCurrency(SALVAGE_CURRENCY_BASE + l.tier * SALVAGE_CURRENCY_PER_TIER);
   } else if(l.kind === 'artifact' && l.artifactId){
     if(!player.artifacts.includes(l.artifactId)) player.artifacts.push(l.artifactId);
   }
@@ -1824,6 +1895,9 @@ function broadcastInstanceState(inst){
       returnExit: returnExitFor(inst)
     } : null,
     wave: inst.waveState ? { killsSoFar: inst.waveState.killsSoFar, killTarget: inst.waveState.killTarget } : null,
+    doors: inst.roomState === 'awaiting_exit'
+      ? doorsFor(inst).map(d => ({ x: d.exit.x, y: d.exit.y, r: d.exit.r, label: d.label || 'Continue on', color: d.color || null }))
+      : null,
     family: db.getFamilyState(),
     dungeonsCleared: db.getFamilyState().dungeonsCleared,
     dungeonSummary: inst.dungeonSummary,
@@ -1865,6 +1939,7 @@ setInterval(()=>{
       tickLoot(inst);
       tickSafeRoom(inst);
       tickBranch(inst);
+      tickRoomExit(inst);
       tickRevive(inst, dt);
       broadcastInstanceState(inst);
     } catch (err) {

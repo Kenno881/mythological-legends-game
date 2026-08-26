@@ -209,29 +209,56 @@ const DUNGEONS = [
           {type:"bandit", x:220, y:150}, {type:"bandit", x:220, y:600},
           {type:"bandit", x:260, y:375}
         ]},
-      // Old Watchtower — a second fork. Main path is a modest fixed fight;
-      // the side chamber (Poacher's Den) is guarded by a real mini-boss
-      // (the Bandit Captain, §6 of MASTER_DESIGN.md's encounter tiers —
-      // first thing to actually occupy that tier) for guaranteed loot.
-      { branch: true,
-        loreText: "An abandoned watchtower looms ahead, its garrison long since turned to banditry.",
-        sideChamber: {
-          name: "The Poacher's Den",
-          warningText: "Their captain keeps watch here — worth the fight.",
-          enemies: [
-            {type:"banditCaptain", x:500, y:280},
-            {type:"bandit", x:350, y:420}, {type:"bandit", x:650, y:420}
-          ]
-        },
+      // Old Watchtower — now a real hub (2026-08-26, MASTER_DESIGN.md §9's
+      // "actual Isaac feel" pass), not a single fork. Clearing its own fight
+      // opens three doors at once: the Poacher's Den mini-boss chamber, the
+      // Sunken Trail wave encounter, or straight onward to the boss — a
+      // genuine "which direction" choice instead of one path plus an
+      // optional detour. `doors` (server.js's doorsFor()/tickRoomExit())
+      // generalizes the single "Continue on" gate every plain room already
+      // gets on clear into an N-way choice; each door's `to` is this
+      // dungeon's own room index, not necessarily +1.
+      { loreText: "An abandoned watchtower looms ahead, its garrison long since turned to banditry — three roads lead on from here.",
         enemies: [
           {type:"darkKnight", x:500, y:250}, {type:"bandit", x:680, y:420},
           {type:"bandit", x:320, y:420}
+        ],
+        doors: [
+          { to: 3, exit: {x:900, y:195, r:45}, color: [212,60,45],
+            label: "The Poacher's Den — their captain keeps watch here, worth the fight." },
+          { to: 5, exit: {x:900, y:375, r:45}, color: [232,193,74], label: "Onward to the Ford" },
+          { to: 4, exit: {x:900, y:555, r:45}, color: [90,150,110],
+            label: "The Sunken Trail — the road dips into marshland, something stirs in the reeds." }
         ]},
+      // The Poacher's Den — promoted from a nested `sideChamber` to a real
+      // room (2026-08-26) so the hub above can offer it as one of three
+      // doors rather than one branch's only detour. Same mini-boss fight as
+      // before. `guaranteedLoot` replaces the old `branchState ===
+      // 'in_side_chamber'` guarantee (server.js's dropLoot()), which only
+      // ever fired for an embedded sideChamber — a standalone room needs its
+      // own explicit flag to keep "the harder room always drops something."
+      { loreText: "The Poacher's Den — their captain keeps watch here.",
+        guaranteedLoot: true,
+        enemies: [
+          {type:"banditCaptain", x:500, y:280},
+          {type:"bandit", x:350, y:420}, {type:"bandit", x:650, y:420}
+        ],
+        doors: [ { to: 5, exit: {x:900, y:375, r:45}, label: "Onward to the Ford" } ]
+      },
       // The Sunken Trail — a continuous-spawn wave encounter (§9's
       // escalating-spawn direction, first slice of it, Sherwood-only for
       // now). Kill quota drives escalation: spawns get faster and enemies
       // get tougher as killsSoFar climbs — see server.js's tickWaveSpawns.
-      { wave: true, killTarget: 14, maxAlive: 5,
+      // Reached only via the hub's door now (2026-08-26) — previously
+      // mandatory main-path content, now a real optional choice like the
+      // Poacher's Den. `clearBonusLoot` gives one guaranteed drop on top of
+      // the normal per-kill rolls once the quota's hit (server.js's
+      // tickMonsters room-clear block), the same "guaranteed find" shape as
+      // Forest Crossroads' secretNook — not a guaranteed roll on all 14+
+      // kills, which would undercut the tier-roll system's whole point.
+      // No `doors` field: the synthesized default (doorsFor(), server.js)
+      // of `{to: roomIndex + 1}` already lands on the boss room (index 5).
+      { wave: true, killTarget: 14, maxAlive: 5, clearBonusLoot: true,
         loreText: "The road dips into marshland — and something is stirring in the reeds ahead.",
         spawnPoints: [
           {x:450, y:200}, {x:700, y:250}, {x:300, y:500},

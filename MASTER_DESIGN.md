@@ -407,6 +407,18 @@ toward this, §9.
   server-side regardless of the panel's own client-side visibility.
   Finally builds the level-boost catch-up tool the design doc named back
   at launch but never implemented.
+- **Room-clear gates, 2026-08-26 (§9).** A cleared room now opens a gate to
+  walk through instead of auto-teleporting the party on a blind timer —
+  Binding of Isaac's "clear it, doors open" feel, reusing the same gate
+  mechanism branch rooms already had. Shared code path, so it applies to
+  every dungeon's plain rooms, not just Sherwood.
+- **Sherwood hub-and-spoke, 2026-08-26 (§9).** Old Watchtower is now a real
+  hub — clearing it opens three doors at once (Poacher's Den, straight to
+  the boss, or the Sunken Trail wave room, now optional rather than
+  mandatory) instead of one linear path with a single detour. First real
+  branching exploration, generalized from the room-clear gate above into
+  an N-door mechanism; one dungeon, hand-authored, not a general room
+  graph yet.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -656,6 +668,36 @@ Weapon and Armor well inside one dungeon clear, which defeats gear being
 persistent-campaign progression rather than a same-session curve.
 Side-chamber/boss guaranteed drops are unchanged — those stay the
 "worth the extra risk/effort" reward.
+
+**Weapon/armor pickups now roll a tier instead of always being a
+guaranteed +1, 2026-08-26 — user feedback: "gear doesn't drop, it
+upgrades every time."** Every pickup used to unconditionally step
+`weaponTier`/`armorTier` up by one — a "drop" was really an invisible
+stat counter with no chance involved, so it never felt like finding
+something. `pushGearLoot` now rolls each weapon/armor drop its own tier
+(`rollGearTier()`, weighted `[50, 30, 15, 5]` across the 4 tiers — Iron-
+equivalent common, the named capstone a 5% tail) at the moment it spawns,
+and `applyLootPickup` only equips it if that roll actually beats what's
+already worn; a roll that doesn't melts down into a small chunk of family
+currency instead (`SALVAGE_CURRENCY_BASE + tier * SALVAGE_CURRENCY_PER_TIER`
+— 3/5/7/9 coin) rather than just vanishing, so picking one up still means
+something even on a miss. "Guaranteed drop" (a side chamber, a boss
+token) now means guaranteed a roll, not a guaranteed upgrade — the harder
+room is still worth it on average, just no longer a sure thing at the top
+end. `TRASH_GEAR_DROP_CHANCE` raised 0.12 → 0.20 alongside this: a drop
+showing up more often is fine now that it doesn't automatically max gear
+out. The ground token's color now reflects its own rolled tier
+(`js/render.js`) rather than always matching whatever's currently
+equipped, so a gold-tinted drop on the floor is a real "that one's worth
+grabbing" signal; a whiff shows as a small "+N coin" toast (the only live
+feedback for that case, since the tier itself doesn't change on a miss).
+Confirmed live via a temporary debug log (removed before committing): a
+tier-0 character's bandit kill rolled tier 1 and correctly upgraded;
+follow-up kills at tier 1 rolled tier 1 and tier 0 and both correctly
+salvaged (+5, +3) instead of no-op-ing. The `[50,30,15,5]` weighted roll
+was also verified against a 200k-trial simulation (50.2/30.0/14.9/4.9%)
+before shipping. First-cut numbers, not validated by a real family
+session, same caveat as every other balance number on this doc.
 
 | Slot | Structure | Effect | Ladder/items |
 |---|---|---|---|
@@ -927,6 +969,97 @@ fires automatically at a locked target; specials remain manual. Neither
 change extends to the other 3 dungeons yet, which still use the original
 fixed-room-of-enemies model.
 
+**Room-clear gates, 2026-08-26 — explicit clarification of the exploration
+feel: Binding of Isaac, not a conveyor belt.** A plain (non-branch,
+non-boss, non-safe) room used to auto-teleport the whole party to the next
+room on a blind 1400ms timer the instant the last enemy died — no player
+action, nothing to walk to, nothing shown on screen while it counted down.
+Replaced with the same gate primitive branch rooms and the safe room
+already use: clearing the room sets `roomState: 'awaiting_exit'`
+(`server.js`), which opens a single "Continue on" gate at `roomExitFor()`
+(reuses a room's `exits.main` override if it has one, else the same
+centered spot the safe room/branch-return gate sit at); walking into it
+(`tickRoomExit()`) advances to the next room, same `someoneAt()` proximity
+check as every other gate. Purely a trigger-mechanism change — no new
+room data, no change to which rooms exist or what's in them. Currently
+only reachable on Sherwood's wave room (Old Watchtower/Forest Crossroads
+are branch rooms, so they already gated this way; the other 3 dungeons'
+plain fixed-enemy rooms will pick this up automatically too, since it's
+the shared room-clear path, not a per-dungeon change. Confirmed live: the
+underlying mechanism (gate appears only once a room is actually cleared,
+walking into it advances, resets cleanly on a fresh room load) was
+exercised directly through Forest Crossroads' and Old Watchtower's own
+branch gates in a real playthrough with no errors, including through a
+mid-fight death → party wipe → safe-room reset — `roomState` resets
+alongside `branchState` in `loadRoom()`, so an interrupted room-clear
+doesn't leave a stale gate behind.
+
+**Sherwood hub-and-spoke — real branching, 2026-08-26, first pass at the
+actual Isaac feel.** The gate mechanism above only fixed the *trigger*
+(walk through a door instead of an invisible timer) — the *layout*
+underneath it was still a single linear sequence
+(`dungeon.rooms[roomIndex]`, `roomIndex + 1` on advance), with exactly one
+place that forked at all (a room's optional `sideChamber`, and even that
+always reconverged onto the same single next room). This pass generalizes
+the single-gate mechanism into a real N-door one and uses it once: what
+was "Old Watchtower → the mandatory Sunken Trail wave room → the boss" is
+now a **hub** — clearing Old Watchtower's own fight opens three doors at
+once (`js/data.js`'s new `doors` field, an array of `{to, exit, label,
+color}` — `to` is this dungeon's own room index, not necessarily +1) —
+the Poacher's Den mini-boss chamber, straight onward to the boss, or the
+Sunken Trail wave encounter, and the player picks exactly one. The
+Poacher's Den was promoted from a nested `sideChamber` to a real
+standalone room so it could be one of three doors instead of one branch's
+only detour; the Sunken Trail, previously forced main-path content,
+becomes a real optional risk/reward choice like the Poacher's Den already
+was — same fight content in both cases, nothing new authored. `doorsFor()`
+(`server.js`) returns a room's explicit `doors` if it has any, else
+synthesizes today's exact single-gate behavior (`{to: roomIndex+1}`), so
+every other room in the game — including Forest Crossroads, untouched —
+keeps working exactly as before; `tickRoomExit()` loads whichever door's
+target directly rather than always advancing by one.
+
+Promoting the Poacher's Den out of `sideChamber` broke its guaranteed loot
+(the old guarantee was keyed on `branchState === 'in_side_chamber'`, which
+a standalone room reached via `loadRoom()` never sets) — fixed with an
+explicit `guaranteedLoot` room flag, checked in `dropLoot()` alongside the
+old branch check. The Sunken Trail becoming skippable needed its own
+"worth it" argument, but *not* a per-kill guarantee like the side
+chamber — 14+ kills × guaranteed drop would undercut the whole point of
+the tier-roll change above (§7). Instead it keeps the normal 20% per-kill
+roll during the fight, plus one bonus drop on room-clear
+(`clearBonusLoot`), the same "guaranteed find" shape as Forest Crossroads'
+secretNook rather than a new mechanic. **Confirmed live**, including one
+real bug caught only by playing it: the hub's three `doors` entries
+initially had two `to` indices transposed (the "Onward to the Ford" label
+pointed at the Sunken Trail room and vice versa) — a real family player
+choosing "onward" would have been silently dropped into the wave room
+instead of the boss, and the "Sunken Trail" door would have skipped
+straight to the boss. Caught by walking it, fixed, then re-confirmed: the
+"Onward to the Ford" door correctly reaches the boss room (`chamber 2` →
+`BOSS` in server logs, not `chamber 2` → `wave chamber`) across three
+separate live runs; the Poacher's Den door correctly reaches its own room
+and — via a temporary debug log, removed before committing — its
+`guaranteedLoot` fix was directly observed firing for a bandit kill with
+`branchState` null, exactly the coupling the promotion would otherwise
+have silently broken. The Sunken Trail's own routing/`clearBonusLoot`
+weren't independently re-confirmed this pass (a fresh low-level solo
+character couldn't survive a full 14-kill wave clear to prove it, and
+`clearBonusLoot`/the default-door path both reuse mechanisms — secretNook,
+the synthesized single-door default — already proven live in the room-
+clear-gates pass above), which is a real, named gap in this pass's
+verification, not an assumption dressed up as one.
+
+**Still not the full Isaac picture, deliberately.** This is one hub with
+three spokes, hand-authored, on one dungeon — not a general room graph, no
+minimap, no revisiting a room once you've left it (matches the existing
+side-chamber precedent — Ambush Hollow doesn't let you back into Forest
+Crossroads' hub either), no procedural layout, and the other 3 dungeons
+are still the original fully linear model. Scoped this way on purpose,
+matching how every other feature here shipped — prove the mechanism on
+one dungeon before deciding it's worth repeating. A real room-graph engine
+(arbitrary N rooms, randomized layouts, a minimap) is a bigger, separate
+undertaking if this pattern proves worth extending.
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need
 an alive teammate to walk over and revive them (a few seconds' channel,

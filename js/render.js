@@ -119,6 +119,7 @@ function showLoot(text){
 
 // ---------- HUD ----------
 let lastWeaponTier = 0, lastArmorTier = 0, lastArtifactCount = 0, lastLevel = 1;
+let lastFamilyCurrency = null; // null until the first real state — avoids a spurious toast for currency earned before this session started
 let lastHudWeaponTier = -1, lastHudArmorTier = -1; // -1 so the icons sync on the very first updateHud call
 function setCdVisual(id, remain, total){
   const el = document.getElementById(id);
@@ -184,6 +185,14 @@ function updateHud(s){
   // than one at once (its artifact plus a weapon/armor token).
   if(me.weaponTier > lastWeaponTier) showLoot(`Found ${WEAPON_TIERS[me.weaponTier].name}!`);
   if(me.armorTier > lastArmorTier) showLoot(`Found ${ARMOR_TIERS[me.armorTier].name}!`);
+  // A weapon/armor roll that didn't beat what's equipped melts down into a
+  // bit of family currency instead (server.js's applyLootPickup, 2026-08-26)
+  // — this is the only live feedback for that case, since the tier itself
+  // doesn't change.
+  if(lastFamilyCurrency !== null && s.family && s.family.currency > lastFamilyCurrency){
+    showLoot(`+${s.family.currency - lastFamilyCurrency} coin`);
+  }
+  lastFamilyCurrency = s.family ? s.family.currency : lastFamilyCurrency;
   if(me.artifacts.length > lastArtifactCount){
     const newestId = me.artifacts[me.artifacts.length - 1];
     showLoot(`Found the ${ARTIFACTS[newestId].name}!`);
@@ -365,17 +374,29 @@ function draw(s){
       drawGate(s.branch.returnExit, [232, 193, 74], "Return to the path");
     }
   }
+  // A plain room's exit gate(s) (MASTER_DESIGN.md §9, 2026-08-26) — only
+  // ever present once the room is actually cleared (server-side, roomState
+  // === 'awaiting_exit'), so there's simply nothing to walk into until then
+  // — the Binding of Isaac "clear it, then the door(s) open" feel. A room
+  // with real branching (`doors`, 2026-08-26's hub-and-spoke pass) sends
+  // more than one, each with its own color/label.
+  if(s.doors){
+    s.doors.forEach(d => drawGate(d, d.color || [232, 193, 74], d.label));
+  }
 
   // loot
   // Tinted per kind (§7) so a dropped artifact reads as different from a
   // weapon/armor token even before you reach it — gold for an artifact
-  // (matches the top gear-tier color this used to always be), the tier's
-  // own color for a weapon/armor token at your current tier for that slot.
+  // (matches the top gear-tier color this used to always be), the token's
+  // own *rolled* tier color for weapon/armor (2026-08-26 — each drop now
+  // carries its own tier, server.js's pushGearLoot/rollGearTier, rather
+  // than always matching whatever you're currently wearing), so a glimpse
+  // of a gold-tinted drop on the ground is a real "that one's worth it"
+  // signal rather than every token looking the same regardless of value.
   s.loot.forEach(l=>{
-    const me = myPlayer();
     let color = "#e8c14a";
-    if(l.kind === 'weapon') color = WEAPON_TIERS[me ? me.weaponTier : 0].color;
-    else if(l.kind === 'armor') color = ARMOR_TIERS[me ? me.armorTier : 0].color;
+    if(l.kind === 'weapon') color = WEAPON_TIERS[l.tier || 0].color;
+    else if(l.kind === 'armor') color = ARMOR_TIERS[l.tier || 0].color;
     ctx.save();
     ctx.translate(l.x, l.y);
     ctx.rotate(performance.now() / 400);
