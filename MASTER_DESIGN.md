@@ -419,6 +419,13 @@ toward this, §9.
   branching exploration, generalized from the room-clear gate above into
   an N-door mechanism; one dungeon, hand-authored, not a general room
   graph yet.
+- **Directional doors + a building minimap, 2026-08-26 (§9).** The hub's
+  doors now render on the wall matching their actual compass direction
+  (north/south/east/west) instead of all three sitting on the same wall,
+  and walking through one repositions the player at the opposite wall of
+  the new room. A minimap panel builds itself as you explore rather than
+  showing the layout upfront, reading room topology straight from the
+  shared `js/data.js` — no new server broadcast needed.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -1052,14 +1059,87 @@ verification, not an assumption dressed up as one.
 
 **Still not the full Isaac picture, deliberately.** This is one hub with
 three spokes, hand-authored, on one dungeon — not a general room graph, no
-minimap, no revisiting a room once you've left it (matches the existing
-side-chamber precedent — Ambush Hollow doesn't let you back into Forest
-Crossroads' hub either), no procedural layout, and the other 3 dungeons
-are still the original fully linear model. Scoped this way on purpose,
-matching how every other feature here shipped — prove the mechanism on
-one dungeon before deciding it's worth repeating. A real room-graph engine
-(arbitrary N rooms, randomized layouts, a minimap) is a bigger, separate
-undertaking if this pattern proves worth extending.
+revisiting a room once you've left it (matches the existing side-chamber
+precedent — Ambush Hollow doesn't let you back into Forest Crossroads' hub
+either), no procedural layout, and the other 3 dungeons are still the
+original fully linear model. Scoped this way on purpose, matching how
+every other feature here shipped — prove the mechanism on one dungeon
+before deciding it's worth repeating. A real room-graph engine (arbitrary
+N rooms, randomized layouts) is a bigger, separate undertaking if this
+pattern proves worth extending.
+
+**Directional doors + a map that builds as you explore, 2026-08-26 —
+user feedback: the hub's three doors all sat on the same wall with no real
+compass meaning, and nothing showed the shape of what you'd found.** Two
+pieces sharing one foundation:
+
+*Doors now render on the wall matching their actual direction.* A door
+can name a compass `dir` (`js/data.js`) instead of a hand-placed pixel
+`exit` — `server.js`'s `DOOR_SPOT` resolves it to a real gate on the
+matching wall (north/south/east/west), and `doorsFor()` does that
+resolution for any room that opts in, unchanged for every room that
+doesn't. Direction is authored per-door, not derived from a room's grid
+position — the boss room is a genuine 3-way convergence point (the hub's
+own door, the Poacher's Den's return door, and the Sunken Trail's return
+door all lead there), and a single grid position for it can't
+simultaneously be the correct cardinal delta from three unrelated source
+rooms. Authoring `dir` independently per edge sidesteps that: three
+different doors can all target the boss with three different `dir`
+values, no contradiction. Walking through a directional door now
+repositions the player near the *opposite* wall of the room they arrive
+in — the wall facing back the way they came — instead of just leaving them
+wherever they happened to be standing, which is what every room
+transition did before this (`pickSpawnPoint` generalized into
+`pickEntryPoint(inst, basePoint)`, reusing its existing monster-avoidance
+jitter for any base point, not just the join/reconnect entrance). Two
+content-safety numbers got tuned alongside this, not assumed safe: the
+north/south `DOOR_SPOT` y-values sit at 110/`H-110` rather than a naive
+100/650 (a wall-clearance margin — the existing spawn jitter could
+otherwise sample a point clipping the top wall band, since no collision
+check runs on spawn placement), and the Sunken Trail's `{450,200}` wave
+spawn point moved to `{450,260}` (its distance from the corrected north
+entry point was only ~112px, tight enough to flag).
+
+*A minimap builds itself as you explore, rather than showing the whole
+layout upfront.* Needed no new server broadcast field — `js/data.js`'s
+`DUNGEONS` is already loaded identically by client and server, so the
+client reads a room's `grid`/`doors`/`to` straight from the shared static
+data (the same way `currentRoomData()` already worked); only the live gate
+*positions* are server-resolved. `grid` (a per-room `{x,y}`, minimap
+layout only) is deliberately kept separate from `dir` for the same reason
+described above — trying to derive one from the other would hit the same
+boss-convergence problem. A room appears on the map once actually
+visited, or once a door in the room you're standing in is open and leads
+to it — the map reveals itself alongside what's already visible on screen,
+not ahead of it. Every Sherwood room got a `grid` value (continuing west
+from the hub's `{0,0}`: safe room, Forest Crossroads, hub, Poacher's Den,
+Sunken Trail, boss) so the panel shows the current room from the moment a
+run starts rather than staying empty until the hub's first cleared; the
+panel hides itself entirely for the other 3 dungeons, which have no
+`grid` data yet, rather than rendering an empty box. Resets on every fresh
+entry into a dungeon's safe room (covers both a genuinely new run and a
+wipe resetting the dungeon's rooms out from under whatever was already
+explored), not on a bare dungeon-name change, which would've missed
+rejoining the same dungeon after leaving.
+
+**Confirmed live, precisely — server-side state read directly rather than
+via the render loop** (this sandboxed browser environment never fires
+`requestAnimationFrame` at all, confirmed separately by a 1-second probe
+that counted zero frames despite the page reporting `visible`; this
+affects every render-loop-driven feature equally, not something new here,
+and doesn't apply to a real browser). All three hub doors resolved to
+their exact intended `DOOR_SPOT` coordinates, and the moment they opened,
+the minimap revealed the Poacher's Den/boss/Sunken Trail cells at exactly
+their `grid`-implied positions relative to the hub. Walking through the
+north door placed the player at the *south* wall of the Poacher's Den
+(not the hub's coordinates); walking through the (default, no explicit
+`doors`) south door into the Sunken Trail placed the player at *its*
+north wall, clear of the nudged spawn point. The minimap correctly showed
+only "visited" cells (no phantom "known" reveals) until a room's own
+doors actually opened, and correctly reset to just the safe room's cell
+after a wipe. Zero server errors across several full clear/death/wipe
+cycles exercising all three routes.
+
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need
 an alive teammate to walk over and revive them (a few seconds' channel,

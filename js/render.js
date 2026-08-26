@@ -257,6 +257,64 @@ function updateRoster(s){
   }
 }
 
+// ---------- MINIMAP ----------
+// Reveals as you explore (2026-08-26, MASTER_DESIGN.md §9's "actual Isaac
+// feel" pass) rather than showing the whole dungeon upfront. Needs no new
+// server broadcast field: js/data.js's DUNGEONS is already loaded
+// identically by client and server, so a room's `grid`/`doors`/`to` are
+// read straight from the shared static data via currentRoomData()-style
+// lookups — only the live gate *positions* (already broadcast in s.doors)
+// are server-resolved. A room only appears once actually visited, or once
+// a door in the room you're standing in — currently open — leads to it, so
+// the map genuinely builds alongside what's on screen rather than spoiling
+// the layout in advance.
+const visitedRooms = new Set();
+const knownRooms = new Set();
+const minimapEls = new Map(); // roomIndex -> element
+
+function updateMinimap(s){
+  if(!s.dungeonName || !s.roomId) return;
+  const dungeon = dungeonByName(s.dungeonName);
+  if(!dungeon) return;
+  const panel = document.getElementById('minimap');
+  // Dungeons that haven't gotten this treatment yet (still Sherwood-only)
+  // carry no `grid` data at all — hide the panel entirely rather than
+  // showing an empty box that reads as broken.
+  const anyGrid = dungeon.rooms.some(r => r.grid);
+  panel.classList.toggle('hidden', !anyGrid);
+  if(!anyGrid) return;
+
+  const idx = Number(s.roomId.split(':')[1]);
+  visitedRooms.add(idx);
+  const room = dungeon.rooms[idx];
+  if(room.doors && s.doors){
+    room.doors.forEach(d => knownRooms.add(d.to));
+  }
+
+  const CELL = 26;
+  const seen = new Set();
+  new Set([...visitedRooms, ...knownRooms]).forEach(ri=>{
+    const r = dungeon.rooms[ri];
+    if(!r || !r.grid) return;
+    seen.add(ri);
+    let el = minimapEls.get(ri);
+    if(!el){
+      el = document.createElement('div');
+      el.className = 'minimap-cell';
+      panel.appendChild(el);
+      minimapEls.set(ri, el);
+    }
+    el.style.left = (60 + r.grid.x * CELL) + 'px';
+    el.style.top  = (60 + r.grid.y * CELL) + 'px';
+    el.classList.toggle('current', ri === idx);
+    el.classList.toggle('visited', visitedRooms.has(ri) && ri !== idx);
+    el.classList.toggle('known', !visitedRooms.has(ri));
+  });
+  for(const [ri, el] of minimapEls){
+    if(!seen.has(ri)){ el.remove(); minimapEls.delete(ri); }
+  }
+}
+
 // ---------- ROOM TRANSITIONS (derived from state, not simulated) ----------
 let lastRoomId = null;
 function checkRoomTransition(s){
@@ -264,7 +322,19 @@ function checkRoomTransition(s){
   lastRoomId = s.roomId;
   const dungeon = dungeonByName(s.dungeonName);
   if(!dungeon) return;
-  if(s.safe){ showBanner("Safe Room — gather your party, then head for the light"); return; }
+  if(s.safe){
+    // A fresh entry into the safe room is the actual "a run just started
+    // (or restarted after a wipe)" signal — reset the minimap here rather
+    // than on a bare dungeonName change, which would miss rejoining the
+    // same dungeon after leaving, or a wipe resetting the dungeon's rooms
+    // out from under whatever was already explored.
+    visitedRooms.clear();
+    knownRooms.clear();
+    minimapEls.forEach(el => el.remove());
+    minimapEls.clear();
+    showBanner("Safe Room — gather your party, then head for the light");
+    return;
+  }
   if(!s.boss){
     // A room can carry its own loreText (js/data.js — the "deeper in, more
     // lore" idea, Sherwood only for now) — falls back to the plain
@@ -627,6 +697,7 @@ function renderLoop(){
       checkBranchTransition(latestState);
       updateHud(latestState);
       updateRoster(latestState);
+      updateMinimap(latestState);
       draw(latestState);
     }
   } catch (err) {

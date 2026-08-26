@@ -178,7 +178,13 @@ const DUNGEONS = [
       reward: "Safe passage to the marshlands beyond, and the first coin for the family's coffers."
     },
     rooms: [
-      { safe: true, enemies: [] },
+      // `grid` (2026-08-26, the directional-doors/minimap pass) is a
+      // per-room {x,y} layout coordinate for the minimap only — continues
+      // westward from the hub's {0,0} so the map has something to show
+      // from the moment a run starts, not just once real branching exists.
+      // Deliberately NOT the source of a door's compass `dir` — see the
+      // comment above server.js's DOOR_SPOT.
+      { safe: true, enemies: [], grid: {x:-2, y:0} },
       // Forest Crossroads (reshaped 2026-08-25, MASTER_DESIGN.md §9 — real
       // wall-carved exploration instead of two gates floating side by side
       // in an open field). Clear the hub trio, then the room's actual
@@ -190,6 +196,7 @@ const DUNGEONS = [
       // once, so which one you commit to is an actual choice made by
       // walking, not a click.
       { branch: true,
+        grid: {x:-1, y:0},
         loreText: "Bandit tracks crisscross the muddy road, forking three ways ahead — they're closer to Camelot than anyone realized.",
         walls: [
           { x: 300, y: 212, w: 684, h: 24 },
@@ -219,15 +226,16 @@ const DUNGEONS = [
       // gets on clear into an N-way choice; each door's `to` is this
       // dungeon's own room index, not necessarily +1.
       { loreText: "An abandoned watchtower looms ahead, its garrison long since turned to banditry — three roads lead on from here.",
+        grid: {x:0, y:0},
         enemies: [
           {type:"darkKnight", x:500, y:250}, {type:"bandit", x:680, y:420},
           {type:"bandit", x:320, y:420}
         ],
         doors: [
-          { to: 3, exit: {x:900, y:195, r:45}, color: [212,60,45],
+          { to: 3, dir: 'north', color: [212,60,45],
             label: "The Poacher's Den — their captain keeps watch here, worth the fight." },
-          { to: 5, exit: {x:900, y:375, r:45}, color: [232,193,74], label: "Onward to the Ford" },
-          { to: 4, exit: {x:900, y:555, r:45}, color: [90,150,110],
+          { to: 5, dir: 'east', color: [232,193,74], label: "Onward to the Ford" },
+          { to: 4, dir: 'south', color: [90,150,110],
             label: "The Sunken Trail — the road dips into marshland, something stirs in the reeds." }
         ]},
       // The Poacher's Den — promoted from a nested `sideChamber` to a real
@@ -238,12 +246,13 @@ const DUNGEONS = [
       // ever fired for an embedded sideChamber — a standalone room needs its
       // own explicit flag to keep "the harder room always drops something."
       { loreText: "The Poacher's Den — their captain keeps watch here.",
+        grid: {x:0, y:-1},
         guaranteedLoot: true,
         enemies: [
           {type:"banditCaptain", x:500, y:280},
           {type:"bandit", x:350, y:420}, {type:"bandit", x:650, y:420}
         ],
-        doors: [ { to: 5, exit: {x:900, y:375, r:45}, label: "Onward to the Ford" } ]
+        doors: [ { to: 5, dir: 'east', label: "Onward to the Ford" } ]
       },
       // The Sunken Trail — a continuous-spawn wave encounter (§9's
       // escalating-spawn direction, first slice of it, Sherwood-only for
@@ -256,20 +265,25 @@ const DUNGEONS = [
       // tickMonsters room-clear block), the same "guaranteed find" shape as
       // Forest Crossroads' secretNook — not a guaranteed roll on all 14+
       // kills, which would undercut the tier-roll system's whole point.
-      // No `doors` field: the synthesized default (doorsFor(), server.js)
-      // of `{to: roomIndex + 1}` already lands on the boss room (index 5).
+      // Explicit `doors` (2026-08-26, previously relied on the synthesized
+      // default of `{to: roomIndex + 1}`, which happened to land on the
+      // boss too) — given its own `dir:'east'` now so the boss's entry
+      // point is always computed via the directional system regardless of
+      // which of the 3 hub routes was taken, not a mix of old/new.
       { wave: true, killTarget: 14, maxAlive: 5, clearBonusLoot: true,
+        grid: {x:0, y:1},
         loreText: "The road dips into marshland — and something is stirring in the reeds ahead.",
         spawnPoints: [
-          {x:450, y:200}, {x:700, y:250}, {x:300, y:500},
+          {x:450, y:260}, {x:700, y:250}, {x:300, y:500},
           {x:650, y:550}, {x:500, y:400}
         ],
-        pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ]
+        pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ],
+        doors: [ { to: 5, dir: 'east', label: "Onward to the Ford" } ]
       },
       // Boss room — usually the Black Knight, rarely (see rareVariant)
       // Sir Gorlagon instead, per §5/§6/§9's "sometimes it's someone
       // special" rare-boss idea.
-      { boss: true, enemies: [ {type:"blackKnight", x:500, y:280} ],
+      { boss: true, grid: {x:1, y:0}, enemies: [ {type:"blackKnight", x:500, y:280} ],
         rareVariant: { type: "blackKnightRare", chance: 0.12 } }
     ]
   },

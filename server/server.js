@@ -132,17 +132,20 @@ const SPAWN_GRACE = 3;     // seconds of damage immunity after a (re)join regard
                             // land — the entrance-seeking placement below is the main defense
                             // against spawning into a fight, this is just the backstop
 
-// Picks a spawn point near the room's entrance, biased away from whatever
-// monsters are currently alive in this instance — so a join/rejoin mid-fight
-// doesn't land someone in the middle of it just because the fight has
-// drifted toward the entrance over time. Falls back to the entrance itself
-// if nothing is alive (or all candidates are equally boxed in).
-function pickSpawnPoint(inst){
-  let best = { x: ENTRANCE_X, y: ENTRANCE_Y };
+// Picks a point near `basePoint`, biased away from whatever monsters are
+// currently alive in this instance — so landing somewhere mid-fight doesn't
+// drop someone right into it just because the fight has drifted toward
+// that spot over time. Falls back to basePoint itself if nothing's alive
+// (or every candidate is equally boxed in). Originally just the join/
+// reconnect entrance point (pickSpawnPoint below); generalized 2026-08-26
+// so a directional door (loadRoom's enterDir) can reuse the same
+// avoidance logic around whichever wall the player is entering near.
+function pickEntryPoint(inst, basePoint){
+  let best = { x: basePoint.x, y: basePoint.y };
   let bestDist = -Infinity;
   for(let i = 0; i < SPAWN_CANDIDATES; i++){
-    const x = ENTRANCE_X + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
-    const y = ENTRANCE_Y + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
+    const x = basePoint.x + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
+    const y = basePoint.y + (Math.random() * 2 - 1) * SPAWN_SEARCH_RADIUS;
     let nearest = Infinity;
     for(const id in inst.monsters){
       const mon = inst.monsters[id];
@@ -153,6 +156,7 @@ function pickSpawnPoint(inst){
   }
   return best;
 }
+function pickSpawnPoint(inst){ return pickEntryPoint(inst, { x: ENTRANCE_X, y: ENTRANCE_Y }); }
 
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 75 * 1000; // how long a disconnected character survives before removal
 
@@ -379,7 +383,7 @@ function spawnMonster(inst, type, x, y, hpScale){
   return inst.monsters[id];
 }
 
-function loadRoom(inst, idx){
+function loadRoom(inst, idx, enterDir){
   inst.roomIndex = idx;
   inst.branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
   inst.roomState = null; // any cleared-room exit gate is moot whenever a fresh room loads
@@ -413,6 +417,25 @@ function loadRoom(inst, idx){
     // every entry's type is equivalent to overriding "the boss."
     const rareRoll = room.boss && room.rareVariant && Math.random() < room.rareVariant.chance;
     room.enemies.forEach(e=> spawnMonster(inst, rareRoll ? room.rareVariant.type : e.type, e.x, e.y));
+  }
+
+  // Directional-door entry (2026-08-26) — arriving through a door with a
+  // compass `dir` (server.js's doorsFor/DOOR_SPOT) lands near the opposite
+  // wall of the new room, the wall facing back the way they came, instead
+  // of just staying wherever they happened to be standing (today's default
+  // for every non-directional room transition). Repositions every player
+  // unconditionally, dead/disconnected included — inst.roomIndex is
+  // instance-wide, so a fallen teammate is already considered "in" the new
+  // room regardless of revive state, same as resetPlayerForFreshRun does
+  // on a wipe.
+  if(enterDir){
+    const basePoint = DOOR_SPOT[enterDir];
+    for(const pid in inst.players){
+      const p = inst.players[pid];
+      const spot = pickEntryPoint(inst, basePoint);
+      p.x = spot.x; p.y = spot.y;
+      p.spawnProtection = SPAWN_GRACE;
+    }
   }
 
   const label = room.safe ? 'safe room' : room.boss ? 'BOSS' : room.wave ? 'wave chamber' : `chamber ${idx}`;
@@ -490,9 +513,32 @@ function returnExitFor(inst){ return (currentRoom(inst).exits && currentRoom(ins
 // behavior: a synthesized one-door array pointing at roomIndex+1, reusing
 // the same centered gate spot the safe room/branch-return gate already sit
 // at, and the same `exits.main` room override branch rooms use.
+//
+// A door can name a compass `dir` instead of a hand-placed `exit`
+// (2026-08-26, the directional-doors pass) — DOOR_SPOT resolves it to a
+// real gate position on the matching wall, and the same table doubles as
+// where a player entering *through* that door lands in the new room (see
+// loadRoom's enterDir param), always the wall opposite the direction they
+// came from.
+//
+// `grid` (js/data.js, per-room {x,y}) is purely a minimap layout
+// coordinate — NOT the source of `dir`. A room can be a convergence point
+// for doors with different independently-authored `dir` values (the boss
+// room here, reached from 3 different rooms via 3 different doors), which
+// a single grid position can't represent as consistent cardinal deltas
+// from every source room at once. Keep these two fields conceptually
+// separate — don't try to derive one from the other later.
+const DOOR_SPOT = {
+  north: { x: W / 2, y: 110, r: 45 },
+  south: { x: W / 2, y: H - 110, r: 45 },
+  east:  { x: W - 100, y: H / 2, r: 45 },
+  west:  { x: 100, y: H / 2, r: 45 }
+};
+const OPPOSITE_DIR = { north: 'south', south: 'north', east: 'west', west: 'east' };
+
 function doorsFor(inst){
   const room = currentRoom(inst);
-  if(room.doors) return room.doors;
+  if(room.doors) return room.doors.map(d => ({ ...d, exit: d.exit || DOOR_SPOT[d.dir] }));
   return [{ to: inst.roomIndex + 1, exit: (room.exits && room.exits.main) || BRANCH_RETURN_EXIT, label: 'Continue on' }];
 }
 
@@ -1558,7 +1604,7 @@ function tickRoomExit(inst){
   for(const door of doorsFor(inst)){
     if(someoneAt(inst, door.exit)){
       inst.roomState = null;
-      loadRoom(inst, door.to);
+      loadRoom(inst, door.to, door.dir && OPPOSITE_DIR[door.dir]);
       return;
     }
   }
