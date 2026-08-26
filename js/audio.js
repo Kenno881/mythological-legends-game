@@ -287,16 +287,27 @@ function startMusic(){
   musicSchedulerTimer = setInterval(musicSchedulerTick, 100);
 }
 
+// Whichever of the two music systems is actually meant to be audible right
+// now — the procedural generator (musicGain) normally, or a generated
+// dungeon track (dungeonTrackGain) once one is playing (see
+// "DUNGEON MUSIC" below). Volume changes and the visibility duck both need
+// to act on this one specifically, not both at once, since the other is
+// deliberately held silent.
+function activeMusicGain(){
+  return activeMusicIsDungeon ? dungeonTrackGain : musicGain;
+}
+
 function setMusicVolume(v){
   musicVolume = Math.max(0, Math.min(1, v));
   localStorage.setItem('camelotMusicVolume', String(musicVolume));
-  if(musicGain){
+  const gainNode = activeMusicGain();
+  if(gainNode){
     const ctx = ensureAudioCtx();
     // Matches the visibilitychange duck logic below — if the tab happens to
     // be hidden, stay silent rather than blip audible while backgrounded;
     // the next visibilitychange picks up this new musicVolume regardless.
     const target = document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume;
-    musicGain.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
+    gainNode.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
   }
 }
 
@@ -304,10 +315,131 @@ function setMusicVolume(v){
 // schedule) whenever the tab isn't visible, so a backgrounded or
 // screen-locked tablet isn't quietly running music nobody can hear.
 document.addEventListener('visibilitychange', ()=>{
-  if(!musicGain) return;
+  const gainNode = activeMusicGain();
+  if(!gainNode) return;
   const ctx = ensureAudioCtx();
-  musicGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume, ctx.currentTime, 0.3);
+  gainNode.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume, ctx.currentTime, 0.3);
 });
+
+// ---------- DUNGEON MUSIC (generated via tools/generate-music.js) ----------
+// Real Lyria-3-generated tracks (Gemini API, one per dungeon) replace the
+// procedural ambience above once the current dungeon's track has actually
+// loaded — the generator stays running the whole time as the fallback, both
+// for the title/login/character-select/dungeon-select screens (which never
+// have a dungeon track to begin with) and for any dungeon whose track
+// hasn't been generated yet or fails to fetch/decode. Nothing here ever
+// stops musicGain's scheduler; it's only ever ducked to silent and back.
+const DUNGEON_TRACK_SLUG = {
+  "Sherwood Approach": "sherwood-approach",
+  "The Sunken Chapel": "sunken-chapel",
+  "Mordred's Keep": "mordreds-keep",
+  "Avalon's Mist": "avalons-mist"
+};
+// Generation writes whatever extension the model actually returned (see
+// generate-music.js's EXT_BY_MIME) — try the common ones in order rather
+// than hardcoding one, so the client doesn't need to know which format a
+// given track came back as.
+const TRACK_EXTENSIONS = ['mp3', 'wav', 'ogg'];
+
+let dungeonTrackGain = null;
+let dungeonTrackSource = null;
+let dungeonTrackLoopTimer = null;
+let activeMusicIsDungeon = false;
+let currentDungeonName = null;
+const trackBufferPromises = new Map(); // slug -> Promise<AudioBuffer|null>, cached so a re-entered dungeon doesn't re-fetch
+
+// Tries each known extension in turn; resolves null (not a rejection) if
+// none exist or the audio fails to decode, so callers can just fall back
+// to the procedural bed instead of handling an error.
+async function fetchTrackBuffer(slug){
+  const ctx = ensureAudioCtx();
+  for(const ext of TRACK_EXTENSIONS){
+    try {
+      const res = await fetch(`/audio/music/${slug}.${ext}`);
+      if(!res.ok) continue;
+      const arrayBuffer = await res.arrayBuffer();
+      return await ctx.decodeAudioData(arrayBuffer);
+    } catch(err){ /* try the next extension */ }
+  }
+  console.warn(`[audio] no generated track for "${slug}" — staying on the procedural ambience`);
+  return null;
+}
+
+function loadTrack(slug){
+  if(!trackBufferPromises.has(slug)) trackBufferPromises.set(slug, fetchTrackBuffer(slug));
+  return trackBufferPromises.get(slug);
+}
+
+// Loop point is disguised with a real crossfade (each clip fades in, plays
+// full, fades out; the next clip's fade-in overlaps the current one's
+// fade-out) rather than a hard cut — masks both the model's own loop seam
+// and the fixed 30-second boundary lyria-3-clip-preview returns.
+const TRACK_CROSSFADE_SEC = 1.5;
+
+function scheduleTrackLoop(buffer, startAt){
+  const ctx = ensureAudioCtx();
+  const dur = buffer.duration;
+  const fade = Math.min(TRACK_CROSSFADE_SEC, dur / 2);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const srcGain = ctx.createGain();
+  srcGain.gain.setValueAtTime(0.0001, startAt);
+  srcGain.gain.linearRampToValueAtTime(1, startAt + fade);
+  srcGain.gain.setValueAtTime(1, startAt + dur - fade);
+  srcGain.gain.linearRampToValueAtTime(0.0001, startAt + dur);
+  src.connect(srcGain); srcGain.connect(dungeonTrackGain);
+  src.start(startAt); src.stop(startAt + dur + 0.05);
+  dungeonTrackSource = src;
+
+  const nextStartAt = startAt + dur - fade;
+  const delayMs = Math.max(0, (nextStartAt - ctx.currentTime) * 1000);
+  dungeonTrackLoopTimer = setTimeout(()=> scheduleTrackLoop(buffer, nextStartAt), delayMs);
+}
+
+function playDungeonTrack(buffer){
+  const ctx = ensureAudioCtx();
+  if(!dungeonTrackGain){
+    dungeonTrackGain = ctx.createGain();
+    dungeonTrackGain.gain.value = 0.0001;
+    dungeonTrackGain.connect(ctx.destination);
+  }
+  activeMusicIsDungeon = true;
+  if(musicGain) musicGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.4);
+  dungeonTrackGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume, ctx.currentTime, 0.6);
+  scheduleTrackLoop(buffer, ctx.currentTime + 0.05);
+}
+
+function stopDungeonTrack(){
+  activeMusicIsDungeon = false;
+  if(dungeonTrackLoopTimer){ clearTimeout(dungeonTrackLoopTimer); dungeonTrackLoopTimer = null; }
+  if(dungeonTrackSource){ try{ dungeonTrackSource.stop(); }catch(err){} dungeonTrackSource = null; }
+  if(dungeonTrackGain){
+    const ctx = ensureAudioCtx();
+    dungeonTrackGain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.4);
+  }
+  if(musicGain){
+    const ctx = ensureAudioCtx();
+    musicGain.gain.setTargetAtTime(document.hidden ? 0.0001 : MUSIC_GAIN_LEVEL * musicVolume, ctx.currentTime, 0.6);
+  }
+}
+
+// Called on every state snapshot (onAudioState, below) and whenever the
+// client leaves the game screen entirely (main.js's showScreen). A no-op
+// on every snapshot after the first for the same dungeon — only reacts to
+// dungeonName actually changing.
+function syncDungeonMusic(dungeonName){
+  if(dungeonName === currentDungeonName) return;
+  currentDungeonName = dungeonName;
+  const slug = dungeonName && DUNGEON_TRACK_SLUG[dungeonName];
+  if(!slug){ stopDungeonTrack(); return; }
+  loadTrack(slug).then(buffer=>{
+    // The dungeon may have changed again (or the player may have left)
+    // while this was in flight — don't resurrect a stale track.
+    if(currentDungeonName !== dungeonName) return;
+    if(buffer) playDungeonTrack(buffer);
+    else stopDungeonTrack();
+  });
+}
 
 // ---------- STATE DIFFING ----------
 // Each map is fully rebuilt every call from the current snapshot, so ids
@@ -326,6 +458,8 @@ const CD_EPSILON = 0.05; // cooldowns only ever count down on their own; a jump 
 
 function onAudioState(s){
   if(!ensureAudioCtx()) return;
+
+  syncDungeonMusic(s.dungeonName);
 
   // Multiple hits can land in the same 50ms tick (an AoE nova, a slam
   // hitting three players at once) — collapse each category to at most one

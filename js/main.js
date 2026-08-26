@@ -22,6 +22,11 @@ function showScreen(name){
   Object.values(screens).forEach(s => s.classList.add('hidden'));
   screens[name].classList.remove('hidden');
   state = name;
+  // Leaving a run (back to any menu screen) stops receiving 'state'
+  // messages, so js/audio.js's dungeon-track switch (keyed on those
+  // snapshots) would otherwise never hear that the dungeon ended and keep
+  // looping its track forever — tell it directly instead.
+  if(name !== 'game' && typeof syncDungeonMusic === 'function') syncDungeonMusic(null);
 }
 
 // ---------- CHARACTER ROSTER (up to 4 per account, pick one per run) ----------

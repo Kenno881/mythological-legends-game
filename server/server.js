@@ -711,14 +711,24 @@ const STATIC_DIRS = {
   // On-disk path is Assets/processed (see tools/process-sprites.js) — the
   // public URL prefix stays lowercase /assets/ to match this project's
   // other static routes; only the filesystem side needs the real casing.
-  '/assets/': path.join(CLIENT_ROOT, 'Assets', 'processed')
+  '/assets/': path.join(CLIENT_ROOT, 'Assets', 'processed'),
+  // Generated audio (tools/generate-music.js, see js/audio.js's
+  // DUNGEON_TRACK_SLUG) needs no chroma-key/trim pass like sprites do, so
+  // it's served straight from where it's generated — its own top-level
+  // prefix rather than nested under /assets/, since resolveStaticFile below
+  // returns on the first prefix match and '/assets/' would otherwise shadow
+  // anything nested under it.
+  '/audio/': path.join(CLIENT_ROOT, 'Assets', 'audio')
 };
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
-  '.json': 'application/manifest+json; charset=utf-8'
+  '.json': 'application/manifest+json; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg'
 };
 
 function resolveStaticFile(urlPath){

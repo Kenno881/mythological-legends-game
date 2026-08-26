@@ -484,6 +484,46 @@ toward this, §9.
   silent, picks up the new volume on the next real visibilitychange) —
   worth a quick real-device check that dragging the music slider is
   actually audible immediately, not just on the next tab switch.
+- **Generated dungeon music, 2026-08-27 — user request, now that the Gemini
+  API is already wired up for sprite art.** Google's Lyria 3 (reachable via
+  the same `GEMINI_API_KEY` and `@google/genai` package `tools/
+  generate-sprites.js` already uses, through its newer Interactions
+  endpoint — `ai.interactions.create({model: 'lyria-3-clip-preview',
+  input})`) generates real 30-second instrumental clips from a text prompt.
+  Added `tools/generate-music.js` (mirrors the sprite tool: no server
+  involvement, writes straight to `Assets/audio/music/<name>.<ext>`) and
+  `tools/music-requests.json` with one prompt per dungeon (Sherwood
+  Approach, The Sunken Chapel, Mordred's Keep, Avalon's Mist — mood keyed
+  off each dungeon's own `lore` in `js/data.js`). Investigated whether
+  Gemini could also generate the SFX side — no: there's no Gemini model
+  aimed at short foley/hit sounds, Lyria is music-only, so the existing
+  synthesized SFX in `js/audio.js` stay as they are; they're actually a
+  good fit there (instant, reactive to game state, zero asset weight).
+  `js/audio.js`'s `syncDungeonMusic` (called from `onAudioState` on every
+  state snapshot, keyed on `s.dungeonName`) fetches and decodes a track the
+  first time its dungeon is entered, then crossfades it in over the
+  procedural generator; per the user's explicit choice, the procedural
+  generator is a permanent fallback, not a bootstrap step — silently kept
+  for the title/login/character-select/dungeon-select screens (which never
+  have a track), for any dungeon whose file hasn't been generated yet, and
+  for any fetch/decode failure. The 30-second clip boundary and the
+  model's own loop seam are both masked by a real crossfade loop (each
+  play-through fades in, holds, fades out; the next one's fade-in overlaps
+  the previous fade-out) rather than a hard cut. Confirmed live end-to-end
+  with a stand-in WAV file standing in for a real Sherwood track: static
+  route (`/audio/` → `Assets/audio/`, added to `server/server.js` as its
+  own top-level prefix rather than nested under `/assets/`, which would
+  have shadowed it) serves and content-types correctly; fetch → decode →
+  crossfaded loop start → clean teardown on leaving the dungeon all work;
+  the "no track yet" fallback path (today's actual state — no real tracks
+  have been generated) warns once per dungeon and keeps the procedural
+  ambience running with no gap or glitch. Not yet done: actually running
+  the generator against the real Gemini API to produce the four real
+  tracks — that needs `GEMINI_API_KEY` set and `npm install` inside
+  `tools/`, neither of which this sandboxed environment has; a real family
+  member needs to run `node tools/generate-music.js --file
+  tools/music-requests.json` from the repo root and eyeball/listen to the
+  results before they ship.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at

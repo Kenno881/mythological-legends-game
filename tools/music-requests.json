@@ -1,0 +1,18 @@
+[
+  {
+    "name": "sherwood-approach",
+    "prompt": "A tense but heroic forest-road theme -- English folk instrumentation (acoustic strings, low woodwinds, a distant horn), the feeling of bandits watching from the trees along the road into Camelot. Moderate tempo, grounded and earthy, not yet dangerous."
+  },
+  {
+    "name": "sunken-chapel",
+    "prompt": "A dark, eerie, waterlogged theme for a flooded chapel full of restless dead -- sparse, cold strings, a distant tolling bell, slow dripping-water pacing, gothic dread rather than action. Slow tempo, unsettling and hollow."
+  },
+  {
+    "name": "mordreds-keep",
+    "prompt": "A menacing, martial theme for a traitor's stronghold -- low brass, ominous marching percussion, a sense of encroaching betrayal and cold ambition. Driving mid tempo, weightier and more dangerous than the earlier dungeons."
+  },
+  {
+    "name": "avalons-mist",
+    "prompt": "A mystical, ethereal theme for a mist-shrouded final confrontation -- shimmering high strings, otherworldly choir-less atmosphere, the gravity of the last battle for Camelot. Slow-building, majestic rather than frantic."
+  }
+]
