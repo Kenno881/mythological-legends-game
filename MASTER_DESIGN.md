@@ -437,6 +437,11 @@ toward this, §9.
   forever and never take a hit, solo, no teammate needed. Now slower than
   every Sherwood trash mob; a teammate holding aggro is what actually
   keeps a caster safe.
+- **Switch Account button, 2026-08-26 (§8a).** Added to the character-
+  select and dungeon-select screens — the underlying logout flow already
+  existed (it's what the in-game Leave button used), it just wasn't
+  reachable anywhere except mid-run. A family member can now get from one
+  account to another without joining a dungeon first.
 - **Sherwood dungeon expansion, 2026-08-26 (§9).** A second hub, The
   Ford's Edge, plus an optional harder detour, The Riverbank Ambush —
   Sherwood grew from 6 rooms to 8, and the hub's old free "onward to the
@@ -908,6 +913,29 @@ correctly in both the "active runs" and "stuck locks" lists, reset it
 (instance-state cleared, `[admin]` logged), then cleared the join lock
 (instance correctly auto-tore-down once empty, matching the existing
 instance-cleanup behavior).
+
+**Switch Account, 2026-08-26 — user request: a way to get from Test to
+Dad, or to any of the kids, without needing dev tools.** The actual
+logout mechanics already existed and worked correctly — `net.js`'s
+`clearAccountId()`, and `server.js`'s `leaveDungeon` handler, which
+despite its name is really "log this connection out, keep the socket
+open for a fresh login" (a no-op on instance membership if there isn't
+any, so already safe to call from anywhere, not just mid-run). The gap
+was UI: the only button wired to that flow was the in-game Leave button,
+so switching accounts meant joining a dungeon first just to find a way
+back to the login screen. Added a "Switch Account" button (same handler
+as Leave, `js/main.js`'s new `switchAccount()`) to both the character-
+select and dungeon-select screens — the two places a family member
+actually is between runs. Confirmed live: from character-select, the
+button correctly returns to the "Who's Playing?" screen with all 5 names
+and clears the client's identity (`myId` → `null`); logging back in as
+the same account still correctly re-prompts for its PIN (not silently
+reusing the old session); the dungeon-select screen's copy of the button
+behaves identically. Didn't touch `clearAccountId()`/localStorage
+directly — logging into a *different* account already overwrites the
+remembered device id on success (`net.js`'s `loginResult` handler), so
+switching works end-to-end without needing to explicitly forget the old
+one first.
 
 **Open questions:**
 - PIN length/format and recovery (if a kid forgets it — likely just "ask

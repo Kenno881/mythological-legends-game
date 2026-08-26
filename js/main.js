@@ -598,7 +598,19 @@ function onStateUpdate(s){
   updateBoonOverlay(me);
 }
 
-// ---------- LEAVE DUNGEON ----------
-document.getElementById('btnLeave').addEventListener('click', ()=>{
+// ---------- LEAVE DUNGEON / SWITCH ACCOUNT ----------
+// Despite the name, 'leaveDungeon' (server.js) is really "log this
+// connection out, keep the socket open for a fresh login" — it's a no-op
+// on any instance membership if there isn't one, so it's exactly as safe
+// to send from character-select or dungeon-select as it is mid-run. This
+// used to only be reachable via the in-game Leave button, meaning
+// switching from one family member's account to another meant joining a
+// dungeon first just to find a way back to the login screen — added
+// 2026-08-26 (user request) so it's reachable from wherever you actually
+// are.
+function switchAccount(){
   sendLeaveDungeon();
-});
+}
+document.getElementById('btnLeave').addEventListener('click', switchAccount);
+document.getElementById('btnSwitchAccountChars').addEventListener('click', switchAccount);
+document.getElementById('btnSwitchAccountDungeons').addEventListener('click', switchAccount);

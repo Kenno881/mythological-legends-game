@@ -58,6 +58,13 @@
          isAdmin:true (server-verified on every action, not just this
          visibility check); see js/main.js's onWelcome. -->
     <button class="btn secondary hidden" id="btnOpenAdmin" type="button">Admin</button>
+    <!-- Switch Account (2026-08-26) — reuses the same "log this connection
+         out, show the login screen again" flow the in-game Leave button
+         already had (js/main.js's switchAccount()); that flow only used to
+         be reachable from mid-run, so getting from one family member's
+         account to another meant joining a dungeon just to find a way
+         back out. -->
+    <button class="btn secondary" id="btnSwitchAccountChars" type="button">Switch Account</button>
 
     <div id="createClassPanel" class="hidden">
       <div class="title-plate" style="font-size:18px;">Choose a Class</div>
@@ -113,6 +120,7 @@
     <div class="title-plate" style="font-size:26px;">Choose Your Dungeon</div>
     <div id="dungeonSelectStatus" class="passphrase-error"></div>
     <div id="dungeonList" class="dungeon-grid"></div>
+    <button class="btn secondary" id="btnSwitchAccountDungeons" type="button">Switch Account</button>
   </div>
 
   <!-- GAME -->
