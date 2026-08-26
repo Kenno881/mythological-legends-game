@@ -24,13 +24,19 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
   );
+  // Take over immediately rather than waiting for every open tab of this
+  // app to fully close first (the normal SW lifecycle) — a new deploy
+  // should win as soon as the page is next reloaded, not "whenever the
+  // player eventually force-quits their phone app." Paired with
+  // clients.claim() below in activate.
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -51,16 +57,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML/CSS/JS: network-first so a fresh deploy is never stuck behind a
-  // stale cached copy of the game's own code; cache is just the offline/
-  // slow-connection fallback.
+  // HTML/CSS/JS: network-only, deliberately no cache fallback (removed
+  // 2026-08-26 — a real incident, not theoretical). The original
+  // "network-first, cache as an offline fallback" design had a live bug:
+  // ANY network hiccup — not just being fully offline — silently served
+  // a stale cached bundle with zero indication anything was wrong. On a
+  // installed Android PWA, that meant old client-side game logic (missing
+  // wall rendering, no knowledge of ability level-gating) running against
+  // the current server, which just silently rejects what the stale client
+  // doesn't know it needs to ask for correctly — every symptom of a real
+  // bug with none of the visibility. This is a live multiplayer game over
+  // WebSocket anyway (per the file-top comment) — genuinely offline was
+  // always going to mean unplayable, so there's no scenario where serving
+  // a version-mismatched stale bundle is actually better than just
+  // failing the request and letting the browser/player know to retry.
   event.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        return res;
-      })
-      .catch(() => caches.match(req))
+    fetch(req).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+      return res;
+    })
   );
 });

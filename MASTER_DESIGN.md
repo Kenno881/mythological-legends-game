@@ -229,6 +229,34 @@ toward this, §9.
   it recurs, Railway's Deploy Logs should now show a clear `[tick]` or
   `[message]` error with a stack trace instead of the process just going
   silent, which is what actually lets it get fixed for good next time.
+- **Installable PWA — manifest + service worker, 2026-08-25 (never
+  actually written up in this doc until the bug below forced the issue).**
+  `manifest.json` (standalone display, landscape orientation, icons
+  generated from the knight sprite) plus `service-worker.js` make "Add to
+  Home Screen" behave like a real installed app on tablets and phones.
+  **Bug found and fixed, 2026-08-26 — reported live: an Android phone's
+  installed PWA showed room 1 with no walls (§9) and ability buttons that
+  didn't respond, both real features that existed in the current server's
+  code.** Root cause: the service worker's original "network-first, cache
+  as an offline fallback" design silently served a stale cached bundle on
+  *any* network hiccup, not just genuine offline — so an installed phone
+  could easily end up running old client-side JS (no wall rendering, no
+  knowledge of ability level-gating) against the current server, which
+  just silently no-ops what the stale client doesn't know to ask for
+  correctly. Every symptom of a real bug, none of the visibility. Fixed:
+  HTML/CSS/JS now network-*only* — no cache fallback at all, since this is
+  a live WebSocket multiplayer game anyway (genuinely offline was always
+  unplayable, so silently serving a version-mismatched bundle was never
+  actually better than just failing the request). Also added
+  `skipWaiting()`/`clients.claim()` so a newly-deployed service worker
+  takes over on next reload instead of waiting for the app to be fully
+  force-quit first. Confirmed live: registers and activates cleanly, no
+  console errors. **If this exact "stuff that should work doesn't"
+  pattern shows up again on an installed device, the fix is to uninstall
+  and reinstall the PWA (or clear the app's storage) to force a truly
+  fresh fetch** — this change prevents it recurring going forward, but
+  doesn't retroactively un-stick a device already stuck on a stale cache
+  from before the fix shipped.
 - Tiled pixel floor texture + a decorative title banner (2026-08-23).
 - Persistent identity (account id) + reconnect grace window
   (`RECONNECT_GRACE_MS`) — survives a refresh or brief disconnect, not a
