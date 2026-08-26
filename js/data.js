@@ -40,7 +40,22 @@ const CLASSES = {
     name: "Merlin's Apprentice", tag: "Complex — ranged spellcaster",
     desc1: "Arcane Bolt from range, Nova to clear a crowd.",
     desc2: "Manage mana. Keep your distance.",
-    color:"#4090c9", hp:75, speed:190, radius:14,
+    // speed 190 -> 90 (2026-08-26, MASTER_DESIGN.md §9 — real teamwork
+    // requirement). Every class moved at ~190-200 while every Sherwood
+    // enemy moves at 80-110 — any class could permanently outrun any
+    // monster, but it mattered most here: a 280-range projectile auto-
+    // attack plus that speed meant a solo Apprentice could kite forever
+    // and never get hit at all, undercutting Pillar 5's "needs two,
+    // shouldn't really work alone." The special2 comment below already
+    // described this class as "75 HP, zero mobility" — the old 190 speed
+    // never actually matched that. Now genuinely slower than every
+    // Sherwood trash mob (95-110), so a fleeing solo Apprentice eventually
+    // gets caught rather than kiting indefinitely; a teammate holding
+    // aggro (Knight's Taunt) is what actually keeps it safe. Deliberately
+    // left a touch faster than the boss (80) — bosses already have their
+    // own anti-kite tools (Charge/Fear), trash mobs have none, so trash
+    // speed is the number that actually matters here.
+    color:"#4090c9", hp:75, speed:90, radius:14,
     sprite: "assets/sprites/merlinsapprentice.png",
     attack:{dmg:11, range:280, cd:0.5, cost:8, projectile:true},
     special1:{name:"Arcane Nova", cd:5, dmg:26, radius:110, cost:35},
@@ -66,7 +81,11 @@ const CLASSES = {
     name: "Enchanter", tag: "Complex — crowd control",
     desc1: "Mesmerize a foe out of the fight, then speed the party up.",
     desc2: "Control the battlefield instead of just hitting harder.",
-    color:"#9a5bc9", hp:70, speed:190, radius:14,
+    // speed 190 -> 90 (2026-08-26) — same fix, same reasoning as the
+    // Apprentice above: a 260-range projectile auto-attack at old-190
+    // speed meant permanent kiting, no teammate required. See
+    // CLASSES.apprentice's comment for the full rationale.
+    color:"#9a5bc9", hp:70, speed:90, radius:14,
     sprite: "assets/sprites/enchanter.png",
     attack:{dmg:8, range:260, cd:0.5, cost:6, projectile:true},
     // Single-target hard CC — locks one non-boss enemy out of the fight

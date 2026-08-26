@@ -431,6 +431,12 @@ toward this, §9.
   — no monsters, doors already open — instead of respawning a fresh fight
   every time you re-enter it. The map can finally be used to navigate,
   not just to look at.
+- **Caster speed fix, 2026-08-26 (§9).** Merlin's Apprentice and Enchanter
+  dropped from 190 to 90 speed — every player class used to move nearly
+  2x faster than any Sherwood monster, so either ranged class could kite
+  forever and never take a hit, solo, no teammate needed. Now slower than
+  every Sherwood trash mob; a teammate holding aggro is what actually
+  keeps a caster safe.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -1246,9 +1252,44 @@ it. Untouched by this: dungeon *entry* — the family-presence gate on an
 uncleared dungeon (§8a) is a separate lever from in-dungeon survivability,
 and wasn't part of what this pass changed.
 
+**Caster speed — closing a real kiting hole, 2026-08-26, user request ahead
+of a family weekend session.** Checked the actual numbers rather than
+guessing: every player class moved at ~190-200 while every Sherwood
+monster moves at 80-110 (bandit 110, darkKnight 95, banditCaptain 105,
+blackKnight boss 80) — any class could permanently outrun any Sherwood
+monster, but it mattered most for the two classes with a genuine ranged
+auto-attack (Merlin's Apprentice, 280-range projectile; Enchanter,
+260-range projectile): at old speed, either could kite forever and simply
+never take damage, no teammate required at all. That's a direct hole in
+Pillar 5/§9's "co-op required" intent — `SOLO_DANGER_MULT` above raises
+the cost of getting hit, but does nothing if a class can just never get
+hit in the first place. Dropped both to `speed:90` (`js/data.js`) — below
+every Sherwood trash mob, so a fleeing solo caster's head start shrinks to
+nothing and it eventually gets caught, rather than kiting being a full
+escape. Deliberately left a touch faster than the boss (80): bosses
+already have their own anti-kite tools (Charge, Fear) that trash mobs
+don't, so trash speed is the number that actually mattered here, not a
+uniform "slower than everything" rule. A teammate holding aggro (Knight's
+Taunt) is what's meant to turn "eventually caught" into "actually safe" —
+the intended shape is solo-fragile, duo-viable, matching the pitch's
+"realistically completable by 2, not really by 1" (§1). The Merlin's
+Apprentice's own special2 comment already described it as "75 HP, zero
+mobility" before this change — the old 190 speed never actually matched
+that description; it does now. Confirmed live: a fresh level-1 Apprentice
+resolves `speed:90` correctly in a real joined session, and — playtested
+directly, not just asserted — got caught and killed fast by 3 close-range
+bandits in Forest Crossroads, a matchup the old 190 speed would have let
+it walk away from untouched. First-cut number, not validated by an actual
+two-caster-vs-one family session; retune if duo play still isn't the
+"good combination" the number's aiming for.
+
 **Open questions:**
 - Whether the 1.6x solo multiplier is actually well-tuned — needs a real
   solo run to judge, same caveat as the party-scaling numbers above.
+- Whether `speed:90` for the two ranged classes is the right number, or
+  needs retuning once a real two-player (tank+caster) session has actually
+  tried it — same "first-cut, needs real play" caveat as everything else
+  on this list.
 - Whether a wipe should ever cost something beyond lost time (a death
   counter, a run-time penalty) — currently a wipe is "try the same
   dungeon again from its safe room," no other consequence.
