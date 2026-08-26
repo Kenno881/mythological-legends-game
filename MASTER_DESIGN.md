@@ -352,6 +352,21 @@ toward this, §9.
   different-lane, no-wall-direct, the largest monster in the game
   (Questing Beast, radius 30), and the hardest case (routing around both
   of room 1's walls in sequence) — zero wall clips in any of them.
+- **Second monster difficulty pass, 2026-08-26 — reported live: "everything
+  is a bit easy."** The 2026-08-23 pass (§ above) was the last time
+  `ENEMY_TYPES` moved — tuned before leveling, boons, or the three-slot
+  gear system existed. Since then a character gains +4% HP/damage per
+  level (up to +28% at Sherwood's own level-8 cap), up to three stackable
+  boons (+15% damage/+20% HP/+12% speed each), and gear up to 2.4x, none
+  of which the monsters ever got a matching pass for. Trash +18% HP/+10%
+  damage, the mini-boss +15%/+10%, bosses +12%/+8% (slam/charge damage
+  scaled the same) — sized to roughly counter what *every* character gets
+  for free just from leveling (the one guaranteed source; boons/gear vary
+  by luck and choice, so fully countering a maximally-stacked character
+  would over-punish everyone else). First-cut, same as the original
+  pass — needs a real family session to confirm it lands right, not DPS
+  math. Confirmed live: new numbers load correctly in a fresh Sherwood
+  instance (bandit 46hp/9dmg → 54hp/10dmg).
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at

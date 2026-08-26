@@ -326,10 +326,26 @@ const DUNGEONS = [
 // actually playing it rather than picked from DPS math. Death now has
 // real stakes (revive-by-teammate-or-wipe, server.js), which is most of
 // what makes this land as "tough" rather than just slower.
+//
+// Second pass, 2026-08-26 — reported live: "everything is a bit easy."
+// None of these numbers have moved since the 2026-08-23 pass above, but
+// the character's side of the equation has grown a lot since: permanent
+// per-level stat growth (+4% HP/damage a level, up to +28% at Sherwood's
+// own level-8 cap — MASTER_DESIGN.md §10), in-run boons (+15% damage/
+// +20% HP/+12% speed each, stackable), and three real gear slots (up to
+// 2.4x at the top tier) — none of which existed when these numbers were
+// last tuned. Trash +18% HP/+10% damage, the mini-boss +15%/+10%, bosses
+// +12%/+8% (including their slam/charge damage, scaled the same) — sized
+// to roughly counter what *every* character gets for free just from
+// leveling (the one guaranteed source, unlike boons/gear which vary by
+// luck and choice), not to fully counter a maximally-stacked character,
+// which would over-punish anyone not doing that. First-cut like the
+// original pass — needs an actual family session to confirm it lands
+// right, not just DPS math.
 const ENEMY_TYPES = {
-  bandit:       {hp:46,  speed:110, dmg:9,  radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15,
+  bandit:       {hp:54,  speed:110, dmg:10, radius:15, color:"#7a5a3a", range:30, cd:0.9, xpGear:0.15,
                  sprite:"assets/sprites/bandit.png"},
-  darkKnight:   {hp:85,  speed:95,  dmg:15, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
+  darkKnight:   {hp:100, speed:95,  dmg:17, radius:17, color:"#4a4a52", range:34, cd:1.1, xpGear:0.3,
                  sprite:"assets/sprites/darkknight.png"},
   // Mini-boss (§6's encounter tiers) guarding the Poacher's Den side
   // chamber — tankier than darkKnight, well short of a dungeon boss, with
@@ -339,8 +355,8 @@ const ENEMY_TYPES = {
   // slamStunDur adds a real stun on top of the damage (his one mechanic
   // doing double duty as this dungeon's stun-CC boss) — opt-in per monster
   // the same way chargeSpeed opts a boss into Charge below.
-  banditCaptain:{hp:230, speed:105, dmg:17, radius:20, color:"#5a3a20", range:38, cd:1.0, xpGear:0.4,
-                 slamCd:5.5, slamRadius:90, slamDmg:19, slamTelegraph:1.0, slamStunDur:1.1,
+  banditCaptain:{hp:265, speed:105, dmg:19, radius:20, color:"#5a3a20", range:38, cd:1.0, xpGear:0.4,
+                 slamCd:5.5, slamRadius:90, slamDmg:21, slamTelegraph:1.0, slamStunDur:1.1,
                  sprite:"assets/sprites/bandit.png"},
   // Charge fields (chargeCd/chargeDmg/chargeTelegraph/chargeSpeed) are a
   // second, distinct boss mechanic alongside the shared slam AoE — a
@@ -356,9 +372,9 @@ const ENEMY_TYPES = {
   // warcry that, once it lands, forces nearby players to flee instead of
   // dealing damage. Dodgeable the same way Charge is (telegraph first),
   // gated in tickMonsters the same "has the fields" way slam/charge are.
-  blackKnight:  {hp:480, speed:80,  dmg:22, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
-                 slamCd:4.5, slamRadius:120, slamDmg:34, slamTelegraph:1.1,
-                 chargeCd:6.5, chargeDmg:24, chargeTelegraph:0.6, chargeSpeed:550,
+  blackKnight:  {hp:538, speed:80,  dmg:24, radius:26, color:"#241a1a", range:46, cd:1.3, boss:true,
+                 slamCd:4.5, slamRadius:120, slamDmg:37, slamTelegraph:1.1,
+                 chargeCd:6.5, chargeDmg:26, chargeTelegraph:0.6, chargeSpeed:550,
                  fearCd:9, fearRadius:170, fearDur:1.6, fearTelegraph:0.8,
                  rewardCurrency:30,
                  sprite:"assets/sprites/blackknightboss.png"},
@@ -367,30 +383,30 @@ const ENEMY_TYPES = {
   // server.js's dropLoot) and a bigger currency payoff. Rolled once when
   // Sherwood's boss room loads (js/data.js's rareVariant field on that
   // room) rather than a mid-run ambush.
-  blackKnightRare:{hp:552, speed:80, dmg:25, radius:26, color:"#7a1f2b", range:46, cd:1.3, boss:true,
-                 slamCd:4.5, slamRadius:120, slamDmg:39, slamTelegraph:1.1,
-                 chargeCd:6.5, chargeDmg:28, chargeTelegraph:0.6, chargeSpeed:550,
+  blackKnightRare:{hp:618, speed:80, dmg:27, radius:26, color:"#7a1f2b", range:46, cd:1.3, boss:true,
+                 slamCd:4.5, slamRadius:120, slamDmg:42, slamTelegraph:1.1,
+                 chargeCd:6.5, chargeDmg:30, chargeTelegraph:0.6, chargeSpeed:550,
                  fearCd:9, fearRadius:170, fearDur:1.8, fearTelegraph:0.8,
                  rewardCurrency:60, displayName:"Sir Gorlagon, the Crimson Knight",
                  introText:"A crimson-armored rider blocks the path — Sir Gorlagon himself!",
                  defeatText:"Sir Gorlagon falls! The way to the marshes opens...",
                  sprite:"assets/sprites/blackknightboss.png"},
-  zombie:       {hp:67,  speed:70,  dmg:11, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
+  zombie:       {hp:79,  speed:70,  dmg:12, radius:16, color:"#4a5a3a", range:32, cd:1.0, xpGear:0.15,
                  sprite:"assets/sprites/zombie.png"},
-  wraith:       {hp:34,  speed:155, dmg:10, radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
+  wraith:       {hp:40,  speed:155, dmg:11, radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
                  sprite:"assets/sprites/wraith.png"},
-  greenKnight:  {hp:575, speed:92,  dmg:20, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
-                 slamCd:4.2, slamRadius:110, slamDmg:30, slamTelegraph:1.0,
+  greenKnight:  {hp:644, speed:92,  dmg:22, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
+                 slamCd:4.2, slamRadius:110, slamDmg:32, slamTelegraph:1.0,
                  sprite:"assets/sprites/greenknight.png"},
-  direKnight:   {hp:104, speed:105, dmg:17, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
+  direKnight:   {hp:123, speed:105, dmg:19, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
                  sprite:"assets/sprites/direknight.png"},
-  mordred:      {hp:690, speed:98,  dmg:25, radius:26, color:"#7a1f2b", range:46, cd:1.1, boss:true,
-                 slamCd:3.8, slamRadius:130, slamDmg:36, slamTelegraph:1.0,
+  mordred:      {hp:773, speed:98,  dmg:27, radius:26, color:"#7a1f2b", range:46, cd:1.1, boss:true,
+                 slamCd:3.8, slamRadius:130, slamDmg:39, slamTelegraph:1.0,
                  sprite:"assets/sprites/mordred.png"},
-  mistWraith:   {hp:49,  speed:135, dmg:12, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2,
+  mistWraith:   {hp:58,  speed:135, dmg:13, radius:14, color:"#8adfe0", range:30, cd:0.8, xpGear:0.2,
                  sprite:"assets/sprites/mistwraith.png"},
-  questingBeast:{hp:860, speed:88,  dmg:28, radius:30, color:"#3a1f5b", range:50, cd:1.2, boss:true,
-                 slamCd:3.5, slamRadius:150, slamDmg:38, slamTelegraph:0.9,
+  questingBeast:{hp:963, speed:88,  dmg:30, radius:30, color:"#3a1f5b", range:50, cd:1.2, boss:true,
+                 slamCd:3.5, slamRadius:150, slamDmg:41, slamTelegraph:0.9,
                  sprite:"assets/sprites/questingbeast.png"}
 };
 
