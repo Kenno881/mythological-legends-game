@@ -1,0 +1,22 @@
+[
+  {
+    "name": "squire_female",
+    "prompt": "a young female squire in training, chibi proportions, auburn hair tied back, steel chainmail helmet with a red plume, deep maroon-red tunic with leather straps over chainmail, holding a round shield with a gold cross emblem and a short sword, friendly approachable expression suited for a young audience — same maroon-and-steel squire aesthetic as her male counterpart"
+  },
+  {
+    "name": "knight_female",
+    "prompt": "a female knight in full silver plate armor, chibi proportions, an open-faced helm with a blue plume and a long braid of hair flowing out from beneath it, holding a large heraldic shield with a red rampant lion emblem and a longsword, noble protector bearing — same silver-armor-and-blue-plume knight aesthetic as her male counterpart"
+  },
+  {
+    "name": "merlinsapprentice_female",
+    "prompt": "a young female apprentice wizard, chibi proportions, a deep blue pointed wizard's hood framing a warm youthful face with a few strands of hair visible, wrapped in a flowing blue robe, holding a wooden staff topped with a glowing blue crystal — same blue robe-and-staff aesthetic as her male counterpart"
+  },
+  {
+    "name": "avaloncleric_female",
+    "prompt": "a female Avalonian cleric, chibi proportions, flowing white-and-gold ornate ceremonial robes with a golden chalice emblem on the chest, golden hair, holding a golden mace and a holy book, serene holy-healer presence — same white-and-gold Avalon aesthetic as her male counterpart"
+  },
+  {
+    "name": "enchanter_male",
+    "prompt": "a male elven enchanter, chibi proportions, pointed elven ears, silver-white hair, flowing purple and violet robes with silver arcane trim, holding a small glowing purple magical orb hovering above one open palm, mysterious and elegant fae-touched presence — same purple fae-enchanter aesthetic and elven features as his female counterpart"
+  }
+]

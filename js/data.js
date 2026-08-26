@@ -16,6 +16,7 @@ const CLASSES = {
     desc2: "Tough as oak. Hard to go wrong.",
     color:"#c94040", hp:130, speed:190, radius:16,
     sprite: "assets/sprites/squire.png",
+    spriteFemale: "assets/sprites/squire_female.png",
     attack:{dmg:14, range:34, cd:0.35},
     special1:{name:"Shield Bash", cd:7, dmg:10, radius:70, stun:1.4, cost:0},
     // Self-target, no aim, no cost — same "hard to go wrong" shape as
@@ -31,6 +32,7 @@ const CLASSES = {
     desc2: "Positioning and timing matter.",
     color:"#8a8a86", hp:110, speed:200, radius:16,
     sprite: "assets/sprites/knight.png",
+    spriteFemale: "assets/sprites/knight_female.png",
     attack:{dmg:12, range:36, cd:0.4},
     special1:{name:"Parry", cd:6, block:0.65, dur:1.0, cost:0},
     special2:{name:"Taunt", cd:9, radius:150, dur:4, cost:0, unlockLevel:3},
@@ -57,6 +59,7 @@ const CLASSES = {
     // speed is the number that actually matters here.
     color:"#4090c9", hp:75, speed:90, radius:14,
     sprite: "assets/sprites/merlinsapprentice.png",
+    spriteFemale: "assets/sprites/merlinsapprentice_female.png",
     attack:{dmg:11, range:280, cd:0.5, cost:8, projectile:true},
     special1:{name:"Arcane Nova", cd:5, dmg:26, radius:110, cost:35},
     // Answers Apprentice's real weakness (75 HP, zero mobility) rather than
@@ -72,6 +75,7 @@ const CLASSES = {
     desc2: "Watch everyone's health, not just your own.",
     color:"#e8c14a", hp:85, speed:195, radius:14,
     sprite: "assets/sprites/avaloncleric.png",
+    spriteFemale: "assets/sprites/avaloncleric_female.png",
     attack:{dmg:8, range:40, cd:0.5},
     special1:{name:"Healing Light", cd:3, heal:32, cost:20},
     special2:{name:"Blessing", cd:14, heal:22, buff:1.3, buffDur:8, cost:55, unlockLevel:3},
@@ -86,7 +90,12 @@ const CLASSES = {
     // speed meant permanent kiting, no teammate required. See
     // CLASSES.apprentice's comment for the full rationale.
     color:"#9a5bc9", hp:70, speed:90, radius:14,
-    sprite: "assets/sprites/enchanter.png",
+    // The original enchanter.png already reads as female (elf, dress) —
+    // 2026-08-26's female-art pass swapped it to spriteFemale and
+    // generated a new male variant for the base `sprite` instead of
+    // generating a redundant second female one.
+    sprite: "assets/sprites/enchanter_male.png",
+    spriteFemale: "assets/sprites/enchanter.png",
     attack:{dmg:8, range:260, cd:0.5, cost:6, projectile:true},
     // Single-target hard CC — locks one non-boss enemy out of the fight
     // entirely until it's hit (breaks the mez) or the duration runs out.

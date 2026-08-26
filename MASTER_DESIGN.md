@@ -517,6 +517,22 @@ once — same reasoning as everything else on this roadmap.
 All class/ability numbers live in `js/data.js` (`CLASSES`), shared verbatim
 between server and client so there's exactly one source of truth for balance.
 
+**Gendered sprite art — shipped 2026-08-26.** `js/render.js`'s
+`spriteFor(classKey, gender)` and the `characterSpritesMale`/
+`characterSpritesFemale` caches had existed since character creation
+picked up a gender field, but nothing had ever supplied `spriteMale`/
+`spriteFemale` on any `CLASSES` entry — every character rendered as the
+one existing sprite regardless of gender. Generated via the same
+Gemini pipeline as the monster sprites (`tools/character-requests.json`
++ `generate-sprites.js`/`process-sprites.js`), matched to each class's
+existing color/theme. One wrinkle: the Enchanter's original sprite
+already read as female (elf, dress) — rather than generate a redundant
+second female version, that art became `spriteFemale` and a new male
+variant was generated for the base `sprite` field instead. Every other
+class kept its existing sprite as the male/default and got a new
+`spriteFemale`. Confirmed live: `spriteFor()` resolves a distinct,
+correctly-loaded image for every class × gender combination.
+
 ---
 
 ## 5. Dungeons & Story Arcs
