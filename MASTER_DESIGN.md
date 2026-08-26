@@ -426,6 +426,11 @@ toward this, §9.
   the new room. A minimap panel builds itself as you explore rather than
   showing the layout upfront, reading room topology straight from the
   shared `js/data.js` — no new server broadcast needed.
+- **Backtracking, 2026-08-26 (§9).** The Poacher's Den and the Sunken
+  Trail now have a door back to the hub, and a cleared room stays cleared
+  — no monsters, doors already open — instead of respawning a fresh fight
+  every time you re-enter it. The map can finally be used to navigate,
+  not just to look at.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
@@ -1139,6 +1144,67 @@ only "visited" cells (no phantom "known" reveals) until a room's own
 doors actually opened, and correctly reset to just the safe room's cell
 after a wipe. Zero server errors across several full clear/death/wipe
 cycles exercising all three routes.
+
+**Backtracking, 2026-08-26 — user feedback right after the map shipped:
+"we can't go back rooms."** Every door up to this point was one-way, and a
+room forgot it was ever cleared the instant you left it — `loadRoom()`
+unconditionally wiped and respawned monsters for whatever loaded next,
+with zero memory of anywhere else. Authoring a door back wouldn't have
+been "going back," it'd have been "re-fight the room from scratch." Two
+small, additive pieces fixed this, both reusing infrastructure the doors/
+grid pass already proved:
+
+- A second `doors` entry on the Poacher's Den and the Sunken Trail,
+  pointing back to the hub with the compass `dir` opposite the one the hub
+  used to reach them. `doorsFor()`/`DOOR_SPOT`/`drawGate` were already
+  fully generic over however many doors a room has — this needed zero
+  code changes, just two new `js/data.js` entries.
+- `inst.clearedRooms`, a `Set` recording a room index the moment it's
+  cleared (the same point `roomState` becomes `'awaiting_exit'`).
+  `loadRoom()` checks it: an already-cleared room skips spawning
+  entirely and opens its doors immediately — no fight required, matching
+  a room you've already dealt with. Loot not collected before leaving
+  stays lost (unchanged from before this pass — a cleared room reads as
+  genuinely empty, not a second loot opportunity), which also means no
+  double-dipping on the Poacher's Den's `guaranteedLoot` or the Sunken
+  Trail's `clearBonusLoot`: both only ever fire from inside the room-clear
+  block, which a revisit skips by construction, not by an extra guard.
+  Resets at the exact point `dungeonStartedAt`/`dungeonKillCount` already
+  reset (`loadRoom`'s `idx === 1` block, which fires every time a real run
+  (re)starts, including after a wipe) — cleared-room memory is dungeon-run
+  state, not persistent progress, matching "a wipe resets the dungeon."
+  No minimap changes needed either: `updateMinimap()` already treats
+  "visited" as sticky, so walking back through an already-known room is
+  a no-op for the map.
+
+Scoped the same as the rest of this arc — the hub cluster only. The boss
+room stays a one-way terminal (no reason to revisit a one-shot encounter,
+and it's reached by three different rooms with three independently
+authored `dir` values, so it was never going to get a return door of its
+own without picking one arbitrary "back" direction). Forest Crossroads and
+the safe room keep their existing one-way `branchState` behavior,
+untouched — a separate, older subsystem, out of scope here same as it's
+been for the whole hub-and-spoke arc.
+
+**Confirmed live and thoroughly**, including one thing that only surfaced
+because the test character kept dying to the Poacher's Den's mini-boss
+before ever clearing it solo (expected — this is exactly the kind of
+content Pillar 5's solo-danger multiplier is for): temporarily leveled the
+local dev save's test character up, verified, then reverted it back to
+its actual level before committing. With that headroom: cleared the hub
+and the Poacher's Den, confirmed both doors ("Onward to the Ford" and the
+new "Back to the Watchtower") rendered correctly on the cleared room;
+walked back and confirmed the hub loaded with zero monsters, its doors
+already open, and the player positioned at its north wall (opposite the
+direction just traveled) — no re-fight, exactly the point. Re-entered the
+Poacher's Den and the hub several more times back and forth, confirming
+every revisit stayed empty (not just the first one) and the minimap never
+duplicated or mis-styled a cell. Repeated the same for the Sunken Trail's
+north↔south pair. Then died for real in the Sunken Trail, wiped, and
+confirmed the *next* attempt correctly re-fought the hub from scratch
+instead of treating it as still cleared — the `clearedRooms` reset on a
+real run restart firing correctly, not just asserted. Zero server errors
+across the entire extended session.
 
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need

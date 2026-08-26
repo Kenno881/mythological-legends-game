@@ -203,7 +203,8 @@ function createInstance(dungeonIndex){
     projectiles: [], loot: [],
     advancing: false, waitingForFamily: false, dungeonSummary: null,
     dungeonStartedAt: Date.now(), dungeonKillCount: 0,
-    waveState: null, branchState: null
+    waveState: null, branchState: null,
+    clearedRooms: new Set() // rooms already cleared this run — see loadRoom()'s backtracking skip
   };
 }
 
@@ -388,7 +389,14 @@ function loadRoom(inst, idx, enterDir){
   inst.branchState = null; // any branch fork is resolved (or moot) whenever a fresh room loads
   inst.roomState = null; // any cleared-room exit gate is moot whenever a fresh room loads
   inst.waveState = null;
-  if(idx === 1){ inst.dungeonStartedAt = Date.now(); inst.dungeonKillCount = 0; } // idx 0 is always the safe room — the real run starts on leaving it
+  // idx 0 is always the safe room — the real run (re)starts on leaving it,
+  // including after a wipe (checkForWipe/adminResetInstance both return to
+  // idx 0, then the player leaves again through here) — so this is also
+  // the right point to forget which rooms were cleared on the previous
+  // attempt (2026-08-26, backtracking pass): a wipe resets the dungeon,
+  // not just position, and cleared-room memory is run state, not
+  // persistent progress.
+  if(idx === 1){ inst.dungeonStartedAt = Date.now(); inst.dungeonKillCount = 0; inst.clearedRooms = new Set(); }
   const dungeon = currentDungeon(inst);
   const room = dungeon.rooms[idx];
   for(const id in inst.monsters) delete inst.monsters[id];
@@ -403,7 +411,13 @@ function loadRoom(inst, idx, enterDir){
     if(idx === 1) inst.players[pid].girdleUsedThisRun = false;
   }
 
-  if(room.wave){
+  if(inst.clearedRooms.has(idx)){
+    // Backtracking (2026-08-26) — a room already cleared this run stays
+    // cleared: no monsters, doors already open, nothing to fight. Without
+    // this, a door back would just mean "re-fight the room from scratch,"
+    // not actually going back.
+    inst.roomState = 'awaiting_exit';
+  } else if(room.wave){
     // Kill quota scales with party size too, not just monster HP — more
     // players also means more simultaneous kills happening, which HP
     // scaling alone doesn't touch.
@@ -1807,6 +1821,7 @@ function tickMonsters(inst, dt){
         // 2026-08-26) — a gate opens rather than the party getting blindly
         // teleported on a timer. See tickRoomExit().
         inst.roomState = 'awaiting_exit';
+        inst.clearedRooms.add(inst.roomIndex); // backtracking memory (2026-08-26) — see loadRoom()
         // One guaranteed drop on top of the normal per-kill rolls, once
         // (js/data.js's `clearBonusLoot` — the Sunken Trail, since it
         // became an optional hub door 2026-08-26) — same "guaranteed find"

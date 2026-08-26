@@ -252,7 +252,13 @@ const DUNGEONS = [
           {type:"banditCaptain", x:500, y:280},
           {type:"bandit", x:350, y:420}, {type:"bandit", x:650, y:420}
         ],
-        doors: [ { to: 5, dir: 'east', label: "Onward to the Ford" } ]
+        // Second door added 2026-08-26 — backtracking: south, back the way
+        // in (the hub is north of here), matching OPPOSITE_DIR of the
+        // hub's own north-pointing door to this room.
+        doors: [
+          { to: 5, dir: 'east', label: "Onward to the Ford" },
+          { to: 2, dir: 'south', label: "Back to the Watchtower" }
+        ]
       },
       // The Sunken Trail — a continuous-spawn wave encounter (§9's
       // escalating-spawn direction, first slice of it, Sherwood-only for
@@ -278,7 +284,13 @@ const DUNGEONS = [
           {x:650, y:550}, {x:500, y:400}
         ],
         pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ],
-        doors: [ { to: 5, dir: 'east', label: "Onward to the Ford" } ]
+        // Second door added 2026-08-26 — backtracking: north, back the way
+        // in (the hub is north of here), matching OPPOSITE_DIR of the
+        // hub's own south-pointing door to this room.
+        doors: [
+          { to: 5, dir: 'east', label: "Onward to the Ford" },
+          { to: 2, dir: 'north', label: "Back to the Watchtower" }
+        ]
       },
       // Boss room — usually the Black Knight, rarely (see rareVariant)
       // Sir Gorlagon instead, per §5/§6/§9's "sometimes it's someone
