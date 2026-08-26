@@ -37,13 +37,25 @@ function showRosterPanel(){
   renderRoster();
 }
 
+// Same fallback shape as js/render.js's spriteFor() (class default unless
+// a gendered variant exists), just returning a path string instead of a
+// preloaded Image — these are plain DOM <img> tags on the character-select
+// screens, not canvas drawImage() calls, so there's no reason to route
+// through render.js's canvas-only sprite cache for them.
+function spritePathFor(classKey, gender){
+  const c = CLASSES[classKey];
+  if(!c) return '';
+  return (gender === 'female' && c.spriteFemale) ? c.spriteFemale : c.sprite;
+}
+
 function renderRoster(){
   rosterList.innerHTML = '';
   myCharacters.forEach(ch=>{
     const c = CLASSES[ch.classKey];
     const div = document.createElement('div');
     div.className = 'class-card roster-card';
-    div.innerHTML = `<h3>${c ? c.name : ch.classKey}</h3>
+    div.innerHTML = `<img class="class-card-portrait" src="${spritePathFor(ch.classKey, ch.gender)}" alt="">
+      <h3>${c ? c.name : ch.classKey}</h3>
       <p>${ch.gender ? ch.gender.charAt(0).toUpperCase() + ch.gender.slice(1) : 'Unspecified'} — Level ${ch.level || 1}</p>
       <button class="btn secondary roster-delete" type="button">Delete</button>`;
     div.addEventListener('click', (e)=>{
@@ -68,13 +80,21 @@ function renderRoster(){
   }
 }
 
+const genderMaleImg = document.getElementById('genderMaleImg');
+const genderFemaleImg = document.getElementById('genderFemaleImg');
+
 const createClassGrid = document.getElementById('createClassGrid');
 Object.entries(CLASSES).forEach(([key, c])=>{
   const div = document.createElement('div');
   div.className = 'class-card';
-  div.innerHTML = `<h3>${c.name}</h3><p>${c.desc1}</p><p>${c.desc2}</p><span class="tag">${c.tag}</span>`;
+  div.innerHTML = `<img class="class-card-portrait" src="${c.sprite}" alt="">
+    <h3>${c.name}</h3><p>${c.desc1}</p><p>${c.desc2}</p><span class="tag">${c.tag}</span>`;
   div.addEventListener('click', ()=>{
     pendingClassKey = key;
+    // Gender panel shows this class's actual male/female art side by
+    // side — the point of asking is choosing a look, not just a word.
+    genderMaleImg.src = spritePathFor(key, 'male');
+    genderFemaleImg.src = spritePathFor(key, 'female');
     createClassPanel.classList.add('hidden');
     createGenderPanel.classList.remove('hidden');
   });
