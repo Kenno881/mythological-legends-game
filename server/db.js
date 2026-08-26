@@ -256,6 +256,15 @@ function verifyOrClaimPin(id, pin){
 // actually picks one, and unset for characters migrated from before
 // gender existed at all (see the back-compat loop above).
 const MAX_CHARACTERS = 4;
+// A new character on the `test` account (server.js's ACCOUNTS.test.isTest
+// — already exempt from the party gate for exactly this reason) starts
+// pre-leveled rather than at 1, 2026-08-26. This account exists to QA the
+// game, not to play a campaign — starting it at 1 like a real family
+// member's character meant every testing session had to grind or be
+// manually admin-boosted (and reverted) just to get past early-game
+// fragility before reaching whatever actually needed testing. Every other
+// account is untouched.
+const TEST_ACCOUNT_START_LEVEL = 20;
 
 function getCharacters(id){
   const acct = state.accounts[id];
@@ -274,7 +283,8 @@ function createCharacter(id, classKey, gender){
   const character = {
     id: 'char_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     classKey, gender: gender || null, createdAt: Date.now(),
-    level: 1, xp: 0 // per-character, not account-wide — MASTER_DESIGN.md §10/Phase 3
+    // per-character, not account-wide — MASTER_DESIGN.md §10/Phase 3
+    level: id === 'test' ? TEST_ACCOUNT_START_LEVEL : 1, xp: 0
   };
   acct.characters.push(character);
   persist();
