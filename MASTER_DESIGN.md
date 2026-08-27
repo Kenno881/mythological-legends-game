@@ -570,16 +570,56 @@ toward this, §9.
   on the expected element; confirm correctly advanced from character
   pick to dungeon select; no focus ring appears without simulated
   controller input.
+- **The Sunken Chapel brought up to Sherwood's structural depth,
+  2026-08-27.** Was 4 flat rooms (safe → fight → fight → boss); rebuilt to
+  the same 8-room hub-and-spoke shape as Sherwood's own expansion (§9) —
+  a branch room (The Drowned Narthex → the optional Flooded Crypt), two
+  hubs (The Cloister Hub, The Nave Approach), a mini-boss chamber (The
+  Ossuary), a wave room (The Baptismal Deep), and an optional hard detour
+  (The Reliquary Vault) — reusing every one of Sherwood's generic
+  mechanisms (`doors`/`branch`/`wave`/`guaranteedLoot`) as pure data,
+  nothing new needed in `server.js` for the structure itself. Per-room
+  `loreText` and minimap `grid` coordinates included, same as Sherwood.
+  New mini-boss **The Drowned Sexton** guards The Ossuary (same tier
+  shape as the Bandit Captain — a slam+stun, reusing the zombie sprite).
+  The Green Knight gained his own boss mechanic — **Regrowth**
+  (`regrowCd`/`regrowTelegraph`/`regrowPct`/`regrowInterruptPct` in
+  `js/data.js`, ticked in `server.js`'s `tickMonsters`): straight from
+  the beheading-game legend, he periodically telegraphs and heals a slice
+  of his max HP back — unless the party dealt enough damage during that
+  telegraph window to interrupt it (tracked via `hitMonster`), i.e.
+  "unless focused down," per §5's idea bank. A new rare boss variant,
+  **Sir Bertilak of Hautdesert** (his true identity in the actual Gawain
+  legend, not an invented name), carries his own artifact, **Bertilak's
+  Blade** (+8% damage, always — the new `player.artifactDmgMult`
+  multiplier in `doAttack`). One genuinely shared-code change:
+  `dropLoot`'s rare-variant bonus-loot-token check was widened from a
+  `mon.type === 'blackKnightRare'` hardcode to a generic check against
+  the current room's own `rareVariant.type`, so a future dungeon's rare
+  variant gets the bonus token for free from its `js/data.js` entry alone.
+  **Confirmed live** (`test` account, temporarily boosted/reduced damage
+  multipliers per this project's established live-testing approach,
+  reverted before committing): full room-graph traversal safe room →
+  Narthex → Cloister Hub → Nave Approach → boss without a server error;
+  Regrowth's heal branch confirmed via server log (light, unfocused
+  damage during the telegraph → healed, capped correctly at max HP) and
+  its interrupt branch confirmed separately (heavy damage during the
+  telegraph → heal correctly skipped, matching "unless focused down");
+  the widened rare-variant loot check ran error-free on a normal
+  (non-rare) kill; existing artifact/currency-on-clear pipeline
+  unaffected (Green Knight's Girdle and family currency both still
+  awarded correctly).
 
 ### Known gaps (Campaign)
-- Three of four bosses still only have the shared telegraphed AoE slam at
-  different numbers — the Black Knight is the first exception (Charge, a
-  telegraphed dash, added 2026-08-24 alongside his slam). Green Knight,
-  Mordred, and the Questing Beast still have no mechanic distinct to
-  their own legend.
-- One rare/named spawn exists now (Sherwood's Sir Gorlagon, 2026-08-24) —
-  the other 3 dungeons still have none. Still no weighted loot rarity
-  system generally, just the guaranteed-vs-35%-chance drop rule.
+- Two of four bosses still only have the shared telegraphed AoE slam at
+  different numbers — the Black Knight (Charge + Fear, 2026-08-24/25) and
+  the Green Knight (Regrowth, 2026-08-27) are the exceptions now. Mordred
+  and the Questing Beast still have no mechanic distinct to their own
+  legend (see §5's idea bank — summoned adds / a flee phase respectively).
+- Two rare/named spawns exist now (Sherwood's Sir Gorlagon, 2026-08-24;
+  Sunken Chapel's Sir Bertilak of Hautdesert, 2026-08-27) — Mordred's Keep
+  and Avalon's Mist still have none. Still no weighted loot rarity system
+  generally, just the guaranteed-vs-35%-chance drop rule.
 - Threat is "nearest player, unless taunted" — no accumulating threat table,
   so healing doesn't pull aggro the way it would on a real threat system.
 ### Not started (new direction)
@@ -797,7 +837,7 @@ direKnight/darkKnight → mistWraith), all defined in `ENEMY_TYPES` in
 | Tier | Where it appears | Loot | Mechanic complexity |
 |---|---|---|---|
 | Trash | Continuous spawn escalation (§9) | Common drops only | None beyond base AI |
-| **Mini-boss** | Guards a side chamber/branch in the maze, not the critical path | Better-than-trash guaranteed drop | One real mechanic, not a full boss kit — first one built: Sherwood's Bandit Captain (2026-08-24, a slam cleave), guarding the Poacher's Den |
+| **Mini-boss** | Guards a side chamber/branch in the maze, not the critical path | Better-than-trash guaranteed drop | One real mechanic, not a full boss kit — Sherwood's Bandit Captain (2026-08-24, a slam cleave) guarding the Poacher's Den, and Sunken Chapel's Drowned Sexton (2026-08-27, same slam+stun shape) guarding The Ossuary |
 | Dungeon boss | End of dungeon | Guaranteed dungeon-tier loot | Full mechanic (slam + planned unique mechanics, §5) |
 | Rare/named boss variant | Rare roll in place of the standard dungeon boss (§9) | Guaranteed better loot than standard | Standard boss kit + a twist |
 | Campaign villain | Named story beats — Mordred, Queen Mab | Best-in-slot / unique | Bespoke, built individually rather than from the tier template |
@@ -902,6 +942,7 @@ come back for free once those mechanics get built for their own bosses.
 | Green Knight | **The Green Knight's Girdle** | Once per dungeon run, a killing blow leaves you at 1 HP instead of dying | Straight from the actual legend — Gawain's girdle protects him from the Green Knight's axe; barely had to invent anything here |
 | Mordred | **Mordred's Broken Blade** | +15% damage on the first hit against each new room's enemies | He strikes first, hard, and without warning — a treacherous opening blow, same as the man |
 | The Questing Beast | **Beast-Hide Mantle** | +10% max HP | Ties to the Beast's own planned fear-phase mechanic (§5 idea bank) — the fear-immunity half of this waits for that to actually exist |
+| Sir Bertilak of Hautdesert (Sunken Chapel's rare variant) | **Bertilak's Blade** | +8% damage, always | Distinct from the standard Green Knight's Girdle above, same as Sherwood's rare variant having its own item rather than an extra copy of the standard one — the hunter-lord of the "exchange of winnings" game, who always comes out ahead |
 
 **Beyond Arc I — still idea bank, not committed** (unnamed dungeons don't
 have artifacts assigned yet): *Round Table Shard* (Camlann, if it ships as
@@ -927,6 +968,35 @@ than gear shipping ahead of persistence.
 gear (all three slots) stays permanent, exactly as before — this change
 only affects how many "permanent" tracks there are (three instead of one),
 not the gear/boon split itself.
+
+**Per-dungeon gear ceiling, 2026-08-27.** The tier-roll system (above) rolls
+the same 4-tier table regardless of which dungeon you're in — the math
+showed a family replaying just Sherwood a handful of times had a real shot
+at rolling Excalibur/Aegis of Avalon before the next dungeon even existed,
+which defeats the top tier being a persistent-campaign reward. `DUNGEONS`
+entries now carry an optional `maxGearTier` (`js/data.js`, same shape as
+`minLevel`/`xpCapLevel`) that `server.js`'s `rollGearTier` truncates the
+weight table to and renormalizes over, rather than rolling the full table
+and clamping down (clamping would pile every excluded higher roll onto the
+cap tier itself, skewing its odds above its own listed weight). Sherwood
+Approach caps at Steel (`maxGearTier: 1`), The Sunken Chapel opens Silver
+(`maxGearTier: 2`), Mordred's Keep onward is uncapped — full range,
+including the top tier.
+
+**Open direction, 2026-08-27 — user wants gear to trend more Diablo-like,
+sooner rather than later, and wants every arc (not just Arc I) to have its
+own gear, not just Arc I's 4-tier ladder + 5 curated artifacts stretched
+across everything that comes after.** Not scoped or committed yet — this
+is a genuinely bigger pivot than the per-dungeon cap above, since "Diablo-
+like" implies real itemization (rarity tiers/colors, randomized affixes,
+per-item stat rolls) rather than one shared ladder + a small curated
+per-boss list. Worth deciding deliberately (a real design pass, not a
+buried default) rather than backing into it dungeon-by-dungeon: does the
+existing Weapon/Armor/Artifact 3-slot shape stay and just gain affixes, or
+does itemization replace the ladder outright; does "gear for all acts"
+mean new named artifacts per new boss (cheap, same pattern as Arc I) or a
+wider loot pool with rarity tiers (bigger, new UI/inventory needs). Flagged
+here so it doesn't get decided implicitly the next time a dungeon ships.
 
 ---
 

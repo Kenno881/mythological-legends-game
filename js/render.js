@@ -664,6 +664,17 @@ function draw(s){
       ctx.arc(mon.x, mon.y, mon.fearRadius, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = "rgba(150,60,210,0.12)"; ctx.fill();
     }
+    // Regrowth telegraph (Green Knight, js/data.js's regrow* fields) — a
+    // pulsing green ring on the boss himself (not an AoE at range like the
+    // other three, so no radius field to draw at — the "dodge" here is
+    // dealing enough damage to interrupt it, not moving away), distinct
+    // from slam(red)/charge(orange)/fear(purple).
+    if(mon.regrowState === 'telegraph'){
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(70,210,120,${0.6 + 0.3 * pulse})`; ctx.lineWidth = 3;
+      ctx.arc(mon.x, mon.y, visualRadius + 10, 0, Math.PI * 2); ctx.stroke();
+    }
     // Target-lock ring (auto-attack, server.js's tickAutoAttack) — only
     // drawn for the local player's own locked target, so it reads as "what
     // I'm fighting," not clutter from every player's target at once.

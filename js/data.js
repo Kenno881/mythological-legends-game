@@ -152,6 +152,14 @@ const ARTIFACTS = {
   beastHideMantle: {
     name: "Beast-Hide Mantle", bossType: "questingBeast",
     description: "+10% max HP."
+  },
+  // Sunken Chapel's own rare-variant artifact (2026-08-27) — distinct from
+  // greenKnightGirdle below, same as Sherwood's blackKnight/blackKnightRare
+  // each having their own item rather than the rare variant just handing
+  // out an extra copy of the standard one.
+  bertilakBlade: {
+    name: "Bertilak's Blade", bossType: "greenKnightRare",
+    description: "+8% damage, always."
   }
 };
 
@@ -192,6 +200,15 @@ const DUNGEONS = [
     // before the next unlocks. First-cut numbers, not validated by real
     // family play — see §13.
     minLevel: 1, xpCapLevel: 8,
+    // maxGearTier caps which WEAPON_TIERS/ARMOR_TIERS index this dungeon's
+    // loot rolls can land on (server.js's rollGearTier) — added 2026-08-27
+    // once the math on the tier-roll system (shipped 2026-08-26) showed a
+    // family replaying the easy tutorial dungeon a handful of times had a
+    // real shot at rolling Excalibur/Aegis of Avalon before ever setting
+    // foot in the next dungeon, which defeats the top tier being a
+    // persistent-campaign reward. Capped at 1 (Steel) here; opens wider on
+    // later dungeons below, full range (no cap) from Mordred's Keep on.
+    maxGearTier: 1,
     floorColor: "#2f3b23", wallColor: "#1c2417",
     bossIntroText: "The Black Knight of the Ford blocks the path",
     bossDefeatText: "The Black Knight falls! The way to the marshes opens...",
@@ -395,6 +412,8 @@ const DUNGEONS = [
   },
   { name: "The Sunken Chapel",
     minLevel: 5, xpCapLevel: 16,
+    // Opens Silver — see Sherwood Approach's maxGearTier comment above.
+    maxGearTier: 2,
     floorColor: "#233a3d", wallColor: "#122024",
     bossIntroText: "A hush falls — the Green Knight rises from the flooded nave",
     bossDefeatText: "The Green Knight yields the exchange! Deeper into the keep...",
@@ -403,21 +422,123 @@ const DUNGEONS = [
       objective: "Wade through the drowned dead and put the Green Knight's exchange to rest for good.",
       reward: "The keep beyond finally opens, and whatever the flooded chapel has kept safe all these years."
     },
+    // Rebuilt 2026-08-27 from 4 flat rooms to Sherwood's hub-and-spoke
+    // shape (MASTER_DESIGN.md's "bring the other 3 dungeons up to parity"
+    // pass) — same generic doors/branch/wave/guaranteedLoot/rareVariant
+    // mechanisms Sherwood already exercises, just reskinned to a flooded
+    // chapel, plus this dungeon's own boss mechanic (Green Knight
+    // Regrowth, see ENEMY_TYPES.greenKnight below). Grid coordinates and
+    // door layout deliberately mirror Sherwood's room-for-room (hub at
+    // {0,0}, mini-boss branch north, wave branch south, second hub east,
+    // its own hard detour north, boss at {2,0}) — same structural template,
+    // not a new one invented per dungeon.
     rooms: [
-      { safe: true, enemies: [] },
-      { enemies: [
-          {type:"zombie", x:400, y:220}, {type:"zombie", x:620, y:420},
-          {type:"wraith", x:300, y:480}, {type:"wraith", x:700, y:250}
+      { safe: true, enemies: [], grid: {x:-2, y:0} },
+      // The Drowned Narthex — mirrors Forest Crossroads' branch shape.
+      { branch: true,
+        grid: {x:-1, y:0},
+        loreText: "Pews long since rotted float in black water — something waits deeper in the flooded nave.",
+        walls: [
+          { x: 300, y: 212, w: 684, h: 24 },
+          { x: 300, y: 514, w: 684, h: 24 }
+        ],
+        exits: { main: { x: 900, y: 375, r: 45 }, side: { x: 900, y: 120, r: 45 } },
+        secretNook: { x: 900, y: 630 },
+        sideChamber: {
+          name: "The Flooded Crypt",
+          warningText: "The water runs deeper here — whatever rests below won't rest quietly.",
+          enemies: [
+            {type:"wraith", x:450, y:260}, {type:"wraith", x:620, y:420},
+            {type:"zombie", x:350, y:480}
+          ]
+        },
+        enemies: [
+          {type:"zombie", x:220, y:150}, {type:"zombie", x:220, y:600},
+          {type:"wraith", x:260, y:375}
         ]},
-      { enemies: [
-          {type:"zombie", x:450, y:200}, {type:"zombie", x:550, y:500},
-          {type:"wraith", x:250, y:350}, {type:"wraith", x:750, y:350}, {type:"zombie", x:600, y:230}
+      // The Cloister Hub — clearing it opens all 3 routes onward at once,
+      // same as Old Watchtower.
+      { loreText: "Cloisters open three ways from here, all leading deeper under the water.",
+        grid: {x:0, y:0},
+        enemies: [
+          {type:"zombie", x:500, y:250}, {type:"wraith", x:680, y:420},
+          {type:"zombie", x:320, y:420}
+        ],
+        doors: [
+          { to: 3, dir: 'north', color: [80,170,140],
+            label: "The Ossuary — its keeper still tolls the bell, worth the fight." },
+          { to: 5, dir: 'east', color: [232,193,74], label: "Press on toward the Nave" },
+          { to: 4, dir: 'south', color: [90,150,110],
+            label: "The Baptismal Deep — the flooded font stirs with something rising." }
         ]},
-      { boss: true, enemies: [ {type:"greenKnight", x:500, y:280} ] }
+      // The Ossuary — mini-boss chamber, guards the branch same as the
+      // Poacher's Den. The Drowned Sexton (ENEMY_TYPES below) is this
+      // dungeon's first mini-boss.
+      { loreText: "The Ossuary — bones stacked to the ceiling, and something among them still rings the bell.",
+        grid: {x:0, y:-1},
+        guaranteedLoot: true,
+        enemies: [
+          {type:"drownedSexton", x:500, y:280},
+          {type:"zombie", x:350, y:420}, {type:"zombie", x:650, y:420}
+        ],
+        doors: [
+          { to: 5, dir: 'east', label: "Press on toward the Nave" },
+          { to: 2, dir: 'south', label: "Back to the Cloister" }
+        ]
+      },
+      // The Baptismal Deep — continuous-spawn wave room, same shape as
+      // the Sunken Trail: the flooded font keeps raising more dead until
+      // the kill quota's met.
+      { wave: true, killTarget: 14, maxAlive: 5, clearBonusLoot: true,
+        grid: {x:0, y:1},
+        loreText: "The font at the room's center churns — the water itself won't stop giving up its dead.",
+        spawnPoints: [
+          {x:450, y:260}, {x:700, y:250}, {x:300, y:500},
+          {x:650, y:550}, {x:500, y:400}
+        ],
+        pool: [ {type:"zombie", w:3}, {type:"wraith", w:1} ],
+        doors: [
+          { to: 5, dir: 'east', label: "Press on toward the Nave" },
+          { to: 2, dir: 'north', label: "Back to the Cloister" }
+        ]
+      },
+      // The Nave Approach — second hub, mirrors the Ford's Edge: its own
+      // fight, then a choice between the optional hard detour or the boss.
+      { loreText: "The nave narrows ahead — the water runs colder here, close to wherever the Green Knight waits.",
+        grid: {x:1, y:0},
+        enemies: [
+          {type:"wraith", x:500, y:280}, {type:"wraith", x:400, y:480},
+          {type:"zombie", x:620, y:480}
+        ],
+        doors: [
+          { to: 6, dir: 'north', color: [80,170,140],
+            label: "The Reliquary Vault — well-guarded, worth the fight." },
+          { to: 7, dir: 'east', color: [232,193,74], label: "Onward to the Nave" },
+          { to: 2, dir: 'west', label: "Back to the Cloister" }
+        ]},
+      // The Reliquary Vault — optional hard detour, mirrors the Riverbank
+      // Ambush: a tougher trash pack rather than a second unique unit.
+      { loreText: "Reliquaries line the walls, half-submerged — whatever they held, something still guards it.",
+        grid: {x:1, y:-1},
+        guaranteedLoot: true,
+        enemies: [
+          {type:"wraith", x:400, y:250}, {type:"wraith", x:600, y:250},
+          {type:"zombie", x:350, y:450}, {type:"zombie", x:650, y:450}
+        ],
+        doors: [
+          { to: 7, dir: 'east', label: "Onward to the Nave" },
+          { to: 5, dir: 'south', label: "Back to the Nave Approach" }
+        ]},
+      // Boss room — usually the Green Knight, rarely his true identity
+      // revealed instead (see rareVariant, ENEMY_TYPES.greenKnightRare).
+      { boss: true, grid: {x:2, y:0}, enemies: [ {type:"greenKnight", x:500, y:280} ],
+        rareVariant: { type: "greenKnightRare", chance: 0.12 } }
     ]
   },
   { name: "Mordred's Keep",
     minLevel: 12, xpCapLevel: 24,
+    // No maxGearTier — full ladder open, including Excalibur/Aegis of
+    // Avalon, from here on (see Sherwood Approach's maxGearTier comment).
     floorColor: "#2a2226", wallColor: "#150f12",
     bossIntroText: "Mordred himself descends the stair, blade drawn",
     bossDefeatText: "Mordred is cast down! Only the mist-shrouded peak remains...",
@@ -542,8 +663,45 @@ const ENEMY_TYPES = {
                  sprite:"assets/sprites/zombie.png"},
   wraith:       {hp:40,  speed:155, dmg:11, radius:13, color:"#7ab0a0", range:28, cd:0.7, xpGear:0.15,
                  sprite:"assets/sprites/wraith.png"},
+  // Mini-boss (§6's encounter tiers) guarding The Ossuary — same tier
+  // shape as Sherwood's banditCaptain (guards a branch, one real
+  // telegraphed mechanic reusing the shared slam fields, tankier than
+  // trash, well short of a dungeon boss). Reuses the zombie sprite
+  // (distinguished by color) rather than commissioning new art, same
+  // "fallback before new art" approach used elsewhere.
+  drownedSexton:{hp:310, speed:100, dmg:21, radius:19, color:"#2a3a34", range:36, cd:1.0, xpGear:0.4,
+                 slamCd:5.0, slamRadius:95, slamDmg:24, slamTelegraph:1.0, slamStunDur:1.0,
+                 sprite:"assets/sprites/zombie.png"},
+  // Green Knight — regrowCd/regrowTelegraph/regrowPct/regrowInterruptPct
+  // (2026-08-27) are this dungeon's boss-differentiation pass (§5 idea
+  // bank: "a regrowth/heal phase unless focused down" — straight from the
+  // beheading-game legend, he doesn't stay down easily). Gated in
+  // server.js's tickMonsters the same "has the fields" way slam/charge/
+  // fear are: periodically telegraphs, then heals regrowPct of his max HP
+  // unless the party dealt at least regrowInterruptPct of his max HP to
+  // him during the telegraph window — "unless focused down," not a free
+  // heal regardless of what the party does. rewardCurrency set explicitly
+  // now (previously fell through to onBossDefeated's `|| 30` default) —
+  // higher than Sherwood's, since this is the second dungeon.
   greenKnight:  {hp:644, speed:92,  dmg:22, radius:24, color:"#1f5b45", range:42, cd:1.0, boss:true,
                  slamCd:4.2, slamRadius:110, slamDmg:32, slamTelegraph:1.0,
+                 regrowCd:10, regrowTelegraph:1.5, regrowPct:0.15, regrowInterruptPct:0.08,
+                 rewardCurrency:40,
+                 sprite:"assets/sprites/greenknight.png"},
+  // Rare named variant (§5/§6's "sometimes it's someone special") — same
+  // kit as greenKnight plus Regrowth, ~15% tougher, guaranteed better loot
+  // (server.js's dropLoot) and a bigger currency payoff, same ~2x ratio as
+  // blackKnight->blackKnightRare. Named for his actual identity in the
+  // legend — Bertilak de Hautdesert, the lord the Green Knight really is
+  // under Morgan le Fay's enchantment — rather than an invented name, the
+  // same "sometimes it's someone special" reveal Sherwood's Sir Gorlagon
+  // does, just lore-accurate here instead of new.
+  greenKnightRare:{hp:740, speed:92, dmg:25, radius:24, color:"#12704f", range:42, cd:1.0, boss:true,
+                 slamCd:4.2, slamRadius:110, slamDmg:36, slamTelegraph:1.0,
+                 regrowCd:10, regrowTelegraph:1.5, regrowPct:0.18, regrowInterruptPct:0.08,
+                 rewardCurrency:80, displayName:"Sir Bertilak of Hautdesert",
+                 introText:"The Green Knight's enchantment falls away — Sir Bertilak himself stands before you!",
+                 defeatText:"Sir Bertilak falls, and with him the game he set. Deeper into the keep...",
                  sprite:"assets/sprites/greenknight.png"},
   direKnight:   {hp:123, speed:105, dmg:19, radius:18, color:"#2a2a30", range:36, cd:1.0, xpGear:0.3,
                  sprite:"assets/sprites/direknight.png"},

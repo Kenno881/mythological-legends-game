@@ -379,7 +379,8 @@ function spawnMonster(inst, type, x, y, hpScale){
     slamCd: t.slamCd || 0, slamState: null, slamTimer: 0, alive: true,
     stunTimer: 0, tauntTimer: 0, tauntTarget: null, mesmerizeTimer: 0,
     chargeCd: t.chargeCd || 0, chargeState: null, chargeTimer: 0,
-    fearCd: t.fearCd || 0, fearState: null, fearCastTimer: 0
+    fearCd: t.fearCd || 0, fearState: null, fearCastTimer: 0,
+    regrowCd: t.regrowCd || 0, regrowState: null, regrowTimer: 0, regrowDamageTaken: 0
   });
   return inst.monsters[id];
 }
@@ -1025,6 +1026,7 @@ function handleMessage(id, msg){
       // rejoin (see checkForWipe for the mid-run-wipe case, which clears
       // them the same way).
       level: character.level || 1, xp: character.xp || 0, levelMult: 1, artifactHpMult: 1,
+      artifactDmgMult: 1,
       boonHpMult: 1, boonDmgMult: 1, boonSpeedMult: 1, pendingBoonChoices: [],
       // Lifetime counters, restored from disk — survive both a server
       // restart and a fresh character after death (framed as "how many
@@ -1044,6 +1046,7 @@ function handleMessage(id, msg){
     if(newPlayer.artifacts.includes('gorlagonCrimsonSpur')){
       newPlayer.speed = Math.round(newPlayer.speed * 1.1);
     }
+    if(newPlayer.artifacts.includes('bertilakBlade')) newPlayer.artifactDmgMult = 1.08;
     playerInstance.set(id, dungeonIndex);
     db.savePlayerStats(inst.players[id]); // persist the resolved name even if stats themselves are unchanged
     console.log(`[join] ${id} as ${classKey} into ${DUNGEONS[dungeonIndex].name} (character ${character.id})`);
@@ -1225,7 +1228,7 @@ function doAttack(inst, player, target){
   player.cds.attack = a.cd;
   if(a.cost) player.mana -= a.cost;
 
-  let dmgMult = WEAPON_TIERS[player.weaponTier].mult * player.levelMult * player.boonDmgMult;
+  let dmgMult = WEAPON_TIERS[player.weaponTier].mult * player.levelMult * player.boonDmgMult * player.artifactDmgMult;
   // Mordred's Broken Blade — +15% on the first attack against a fresh
   // room's enemies (loadRoom() resets brokenBladeUsedThisRoom), then
   // normal for the rest of the room.
@@ -1352,6 +1355,9 @@ function doSpecial(inst, player, slot){
 function hitMonster(inst, mon, dmg, killerId){
   mon.mesmerizeTimer = 0; // any damage breaks Mesmerize
   mon.hp -= dmg;
+  // Regrowth's "unless focused down" check (Green Knight, see tickMonsters)
+  // — only counts damage landed during his own telegraph window.
+  if(mon.regrowState === 'telegraph') mon.regrowDamageTaken += dmg;
   if(mon.hp <= 0 && mon.alive){
     mon.alive = false;
     dropLoot(inst, mon);
@@ -1399,18 +1405,27 @@ const TRASH_GEAR_DROP_CHANCE = 0.20;
 // worth it on average without making the top tier a sure thing.
 const GEAR_DROP_WEIGHTS = [50, 30, 15, 5]; // index = tier; Excalibur/Aegis is the 5% tail
 const SALVAGE_CURRENCY_BASE = 3, SALVAGE_CURRENCY_PER_TIER = 2;
-function rollGearTier(){
-  const total = GEAR_DROP_WEIGHTS.reduce((a, b) => a + b, 0);
+// maxTier (js/data.js's per-dungeon maxGearTier) truncates the weight table
+// to that dungeon's opened range and renormalizes over just those tiers,
+// rather than rolling the full table and clamping down — clamping would
+// pile every excluded higher-tier roll onto the cap tier itself, making
+// e.g. Sherwood's Steel far more common than its own 30% weight implies.
+// Added 2026-08-27 so replaying the easy tutorial dungeon can't out-roll
+// its way to Excalibur/Aegis before the campaign's later dungeons exist.
+function rollGearTier(maxTier){
+  const cap = (typeof maxTier === 'number') ? maxTier : GEAR_DROP_WEIGHTS.length - 1;
+  const weights = GEAR_DROP_WEIGHTS.slice(0, cap + 1);
+  const total = weights.reduce((a, b) => a + b, 0);
   let roll = Math.random() * total;
-  for(let i = 0; i < GEAR_DROP_WEIGHTS.length; i++){
-    if(roll < GEAR_DROP_WEIGHTS[i]) return i;
-    roll -= GEAR_DROP_WEIGHTS[i];
+  for(let i = 0; i < weights.length; i++){
+    if(roll < weights[i]) return i;
+    roll -= weights[i];
   }
-  return GEAR_DROP_WEIGHTS.length - 1;
+  return weights.length - 1;
 }
 function randomGearKind(){ return Math.random() < 0.5 ? 'weapon' : 'armor'; }
 function pushGearLoot(inst, x, y, kind, artifactId){
-  const tier = (kind === 'weapon' || kind === 'armor') ? rollGearTier() : null;
+  const tier = (kind === 'weapon' || kind === 'armor') ? rollGearTier(currentDungeon(inst).maxGearTier) : null;
   inst.loot.push({ id: 'l' + (++lootSeq), x, y, taken: false, kind, artifactId: artifactId || null, tier });
 }
 
@@ -1420,8 +1435,15 @@ function dropLoot(inst, mon){
     if(artifactId) pushGearLoot(inst, mon.x, mon.y, 'artifact', artifactId);
     pushGearLoot(inst, mon.x + 20, mon.y + 20, randomGearKind());
     // Rare boss variant guarantees an extra token on top of its own
-    // artifact above — see js/data.js's blackKnightRare/rareVariant.
-    if(mon.type === 'blackKnightRare'){
+    // artifact above — see js/data.js's rareVariant field (blackKnightRare,
+    // greenKnightRare, ...). Checked generically against the room's own
+    // rareVariant.type (2026-08-27, widened from a `mon.type ===
+    // 'blackKnightRare'` hardcode when Sunken Chapel's own rare variant
+    // needed the same bonus without a second hardcoded branch) rather than
+    // a per-type check, so a future dungeon's rare variant gets this for
+    // free from just setting rareVariant in js/data.js.
+    const rv = currentRoom(inst).rareVariant;
+    if(rv && mon.type === rv.type){
       pushGearLoot(inst, mon.x - 20, mon.y - 20, randomGearKind());
     }
     return;
@@ -1785,6 +1807,31 @@ function tickMonsters(inst, dt){
         }
       } else if(mon.fearCd <= 0 && mon.slamState !== 'telegraph' && !mon.chargeState){
         mon.fearState = 'telegraph'; mon.fearCastTimer = mon.fearTelegraph;
+      }
+    }
+
+    // Regrowth — Green Knight's own mechanic (js/data.js's greenKnight
+    // regrow* fields, MASTER_DESIGN.md §5's boss-differentiation idea
+    // bank: "a regrowth/heal phase unless focused down"). Gated on "has
+    // the fields" the same as slam/charge/fear. Telegraphs, then heals
+    // regrowPct of his max HP — unless the party dealt at least
+    // regrowInterruptPct of his max HP to him during the telegraph window
+    // (tracked via regrowDamageTaken, accumulated in hitMonster), in which
+    // case the heal is cancelled outright. No point telegraphing at full
+    // HP, and won't start mid-slam-telegraph so the tells don't stack.
+    if(mon.regrowPct){
+      mon.regrowCd -= dt;
+      if(mon.regrowState === 'telegraph'){
+        mon.regrowTimer -= dt;
+        if(mon.regrowTimer <= 0){
+          mon.regrowState = null;
+          if(mon.regrowDamageTaken < mon.maxHp * mon.regrowInterruptPct){
+            mon.hp = Math.min(mon.maxHp, mon.hp + mon.maxHp * mon.regrowPct);
+          }
+          mon.regrowCd = ENEMY_TYPES[mon.type].regrowCd;
+        }
+      } else if(mon.regrowCd <= 0 && mon.hp < mon.maxHp && mon.slamState !== 'telegraph'){
+        mon.regrowState = 'telegraph'; mon.regrowTimer = mon.regrowTelegraph; mon.regrowDamageTaken = 0;
       }
     }
 
