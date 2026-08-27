@@ -13,6 +13,35 @@ function dungeonByName(name){
   return DUNGEONS.find(d => d.name === name) || null;
 }
 
+// ---------- SPRITE FACING (2026-08-27) ----------
+// Every sprite only exists facing one direction (tools/generate-sprites.js's
+// STYLE_PREFIX) — mirrored horizontally via a canvas transform when moving
+// left, no new art needed. Tracked per-entity by comparing this frame's x
+// against last frame's, not "which way are keys held": that would get Fear's
+// forced-flee movement backwards (moving away from the fear source, not
+// whatever direction the held key implies). Holds the last real direction
+// while moving purely vertically or standing still, rather than snapping
+// back to a default the moment horizontal movement stops.
+const playerFacing = new Map(); // player id -> {lastX, dir}
+const monsterFacing = new Map(); // monster id -> {lastX, dir}
+function facingFor(cache, id, x){
+  let entry = cache.get(id);
+  if(!entry){ entry = { lastX: x, dir: 'right' }; cache.set(id, entry); return entry.dir; }
+  const dx = x - entry.lastX;
+  if(dx > 0.5) entry.dir = 'right';
+  else if(dx < -0.5) entry.dir = 'left';
+  entry.lastX = x;
+  return entry.dir;
+}
+// Mirrors around the sprite's own horizontal center (already how drawX is
+// computed — cx - drawWidth/2), so flipping never shifts its position.
+function applyFacingFlip(cx, dir){
+  if(dir !== 'left') return;
+  ctx.translate(cx, 0);
+  ctx.scale(-1, 1);
+  ctx.translate(-cx, 0);
+}
+
 // Server only sends `roomId` ("dungeonIndex:roomIndex") — this looks up the
 // actual room data object (js/data.js) it refers to, so room-level fields
 // like `sideChamber` (moved off the dungeon and onto individual branch
@@ -528,7 +557,10 @@ function draw(s){
       const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
       const drawX = mon.x - drawWidth / 2;
       const drawY = mon.y + mon.radius - drawHeight;
+      ctx.save();
+      applyFacingFlip(mon.x, facingFor(monsterFacing, mon.id, mon.x));
       ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
+      ctx.restore();
       visualCenterY = drawY + drawHeight / 2;
       visualRadius = drawHeight / 2 * 0.65;
     } else {
@@ -591,6 +623,17 @@ function draw(s){
       ctx.restore();
     }
   });
+  // Prune facing entries for monsters no longer in this snapshot — trash
+  // spawns/despawns constantly over a long session, unlike players (small,
+  // stable account ids), so this map actually needs the cleanup. A dead
+  // monster still sits in `s.monsters` (alive:false) until the room
+  // reloads, so a size comparison alone can't tell "stale" from "just
+  // dead" — checking actual id membership is what's needed either way, and
+  // it's cheap at these counts (never more than a couple dozen).
+  if(monsterFacing.size > 0){
+    const liveIds = new Set(s.monsters.map(mon => mon.id));
+    for(const id of monsterFacing.keys()) if(!liveIds.has(id)) monsterFacing.delete(id);
+  }
 
   // projectiles
   s.projectiles.forEach(p=>{
@@ -619,6 +662,7 @@ function draw(s){
       const drawWidth = drawHeight * (sprite.naturalWidth / sprite.naturalHeight);
       const drawX = p.x - drawWidth / 2;
       const drawY = p.y + p.radius - drawHeight; // feet ~ bottom of the collision circle
+      applyFacingFlip(p.x, facingFor(playerFacing, p.id, p.x));
       ctx.drawImage(sprite, drawX, drawY, drawWidth, drawHeight);
       ringCenterY = drawY + drawHeight / 2;
       ringRadius = drawHeight / 2 * 0.65;
