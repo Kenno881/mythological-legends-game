@@ -153,6 +153,128 @@ const BTN_SPECIAL1 = 0, BTN_SPECIAL2 = 1; // A, B on a standard mapping
 let prevButtonsPressed = {};
 let lastLoggedGamepadId = null; // avoids re-logging "connected" every single poll
 
+// ---------- GAMEPAD MENU NAVIGATION (2026-08-27, user request) ----------
+// Everything above only ever matters while state === 'game' (see the send
+// timer at the bottom of this file) — every screen around a run (login
+// account pick, character roster, class/gender pick, dungeon select) and
+// the mid-run boon-choice overlay were completely inert for a controller.
+// One generic, position-based nav instead of per-screen wiring: it needs
+// zero knowledge of any screen's specific layout, so it keeps working
+// unmodified as screens change or new ones get added.
+//
+// Deliberately out of scope: typed text (the title screen's passphrase,
+// the login PIN panel) stays mouse/keyboard/touch-only — an on-screen
+// keyboard is a much bigger feature on its own.
+const MENU_NAV_SELECTOR = '.class-card, .dungeon-card, .btn, .boon-card';
+let gpFocusEl = null;
+let lastMenuNavContainer = null;
+const prevDirPressed = { up: false, down: false, left: false, right: false };
+let prevMenuConfirmPressed = false;
+
+// The one currently-visible thing worth navigating — the mid-run boon
+// overlay takes priority (it can be up while state is still 'game'), else
+// whichever `.screen` isn't hidden. Returns null if nothing qualifies (a
+// screen transition mid-frame, or nothing shown yet).
+function menuNavContainer(){
+  const boonOverlay = document.getElementById('boonOverlay');
+  if(boonOverlay && !boonOverlay.classList.contains('hidden')) return boonOverlay;
+  const screens = document.querySelectorAll('.screen');
+  for(const s of screens){ if(!s.classList.contains('hidden')) return s; }
+  return null;
+}
+// `el.offsetParent !== null` is what lets this need zero per-screen
+// bookkeeping — it's the standard cheap "is this actually rendered" check,
+// so anything inside a currently-hidden sub-panel (character-creation's
+// class-grid vs. gender-grid, only one ever shown at once; the login
+// screen's name-grid vs. PIN panel) is automatically excluded without this
+// code needing to know those sub-panels exist at all.
+function menuNavCandidates(container){
+  if(!container) return [];
+  return [...container.querySelectorAll(MENU_NAV_SELECTOR)].filter(el=>{
+    if(el.offsetParent === null) return false;
+    // A `.btn` nested inside a card (e.g. a roster card's own Delete
+    // button) isn't a separate top-level choice — the card itself already
+    // is. Selecting a character shouldn't require navigating past, or
+    // risk landing on and confirming, its own delete button.
+    if(el.classList.contains('btn') && el.closest('.class-card, .dungeon-card, .boon-card')) return false;
+    return true;
+  });
+}
+// Reading order — top row first, then left-to-right within a row (a 10px
+// band absorbs sub-pixel/rounding differences between cards that are
+// visually "the same row").
+function topLeftMostCandidate(candidates){
+  return candidates.slice().sort((a, b)=>{
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    if(Math.abs(ra.top - rb.top) > 10) return ra.top - rb.top;
+    return ra.left - rb.left;
+  })[0] || null;
+}
+function setGpFocus(el){
+  if(gpFocusEl) gpFocusEl.classList.remove('gp-focus');
+  gpFocusEl = el;
+  if(gpFocusEl) gpFocusEl.classList.add('gp-focus');
+}
+// Standard TV/console-UI spatial nav: score every other candidate by how
+// far it is in the pressed direction, weighted against how far it drifts
+// sideways from dead-on — not a fixed row/column assumption, so this one
+// function handles the 2-column class-grid, the 1-column dungeon list, the
+// gender-grid-plus-a-Back-button-below, and the boon overlay's 3-wide row
+// without any of them needing to describe their own shape.
+function spatialNext(current, candidates, dir){
+  const cr = current.getBoundingClientRect();
+  const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+  let best = null, bestScore = Infinity;
+  for(const el of candidates){
+    if(el === current) continue;
+    const r = el.getBoundingClientRect();
+    const ex = r.left + r.width / 2, ey = r.top + r.height / 2;
+    const dx = ex - cx, dy = ey - cy;
+    let primary, cross;
+    if(dir === 'up'){ if(dy >= -4) continue; primary = -dy; cross = Math.abs(dx); }
+    else if(dir === 'down'){ if(dy <= 4) continue; primary = dy; cross = Math.abs(dx); }
+    else if(dir === 'left'){ if(dx >= -4) continue; primary = -dx; cross = Math.abs(dy); }
+    else { if(dx <= 4) continue; primary = dx; cross = Math.abs(dy); }
+    const score = primary + cross * 2; // weight lateral drift more — prefer a closely-aligned target over a diagonal one
+    if(score < bestScore){ bestScore = score; best = el; }
+  }
+  return best;
+}
+// Edge-triggered, not held-repeat — one press moves one step. No
+// auto-repeat delay to tune; these menus are small enough (5-8 items) that
+// this isn't a real cost, and it sidesteps a whole class of repeat-timing
+// bugs. Mirrors checkButtonEdge's own one-shot-per-press shape below.
+function handleMenuNav(dpadUp, dpadDown, dpadLeft, dpadRight, ax, ay){
+  const container = menuNavContainer();
+  const candidates = menuNavCandidates(container);
+
+  if(container !== lastMenuNavContainer){
+    lastMenuNavContainer = container;
+    setGpFocus(null); // never carry a stale focus ref into a freshly-shown screen/sub-panel
+  }
+  if(!candidates.length){ setGpFocus(null); return; }
+  if(!gpFocusEl || !candidates.includes(gpFocusEl)) setGpFocus(topLeftMostCandidate(candidates));
+
+  const pressed = {
+    up: dpadUp || ay < -GAMEPAD_DEADZONE,
+    down: dpadDown || ay > GAMEPAD_DEADZONE,
+    left: dpadLeft || ax < -GAMEPAD_DEADZONE,
+    right: dpadRight || ax > GAMEPAD_DEADZONE
+  };
+  ['up', 'down', 'left', 'right'].forEach(dir=>{
+    if(pressed[dir] && !prevDirPressed[dir]){
+      const next = spatialNext(gpFocusEl, candidates, dir);
+      if(next) setGpFocus(next);
+    }
+    prevDirPressed[dir] = pressed[dir];
+  });
+}
+function handleMenuConfirm(gp){
+  const pressed = !!(gp.buttons[BTN_SPECIAL1] && gp.buttons[BTN_SPECIAL1].pressed);
+  if(pressed && !prevMenuConfirmPressed && gpFocusEl) gpFocusEl.click();
+  prevMenuConfirmPressed = pressed;
+}
+
 // The 'gamepadconnected' event is unreliable in practice — Chrome in
 // particular often never fires it for a controller that was already plugged
 // in before the page loaded, only for one plugged in *after*, and even then
@@ -202,13 +324,33 @@ function pollGamepad(){
     const dpadUp = !!(gp.buttons[12] && gp.buttons[12].pressed);
     const dpadDown = !!(gp.buttons[13] && gp.buttons[13].pressed);
 
-    gamepadKeys.left = ax < -GAMEPAD_DEADZONE || dpadLeft;
-    gamepadKeys.right = ax > GAMEPAD_DEADZONE || dpadRight;
-    gamepadKeys.up = ay < -GAMEPAD_DEADZONE || dpadUp;
-    gamepadKeys.down = ay > GAMEPAD_DEADZONE || dpadDown;
+    // Menu nav (see above) takes over d-pad/stick/A whenever there's a menu
+    // to navigate — every screen around a run, plus the boon overlay, which
+    // can be up while state is still 'game'. Movement/specials are
+    // deliberately zeroed out for that same window, not just left alone —
+    // otherwise a held direction would keep walking the character in the
+    // background while its owner thinks they're browsing a menu.
+    const boonOverlay = document.getElementById('boonOverlay');
+    const menuNavActive = (typeof state === 'undefined' || state !== 'game')
+      || (boonOverlay && !boonOverlay.classList.contains('hidden'));
 
-    checkButtonEdge(gp, BTN_SPECIAL1, 'special1');
-    checkButtonEdge(gp, BTN_SPECIAL2, 'special2');
+    if(menuNavActive){
+      handleMenuNav(dpadUp, dpadDown, dpadLeft, dpadRight, ax, ay);
+      handleMenuConfirm(gp);
+      gamepadKeys.left = gamepadKeys.right = gamepadKeys.up = gamepadKeys.down = false;
+    } else {
+      gamepadKeys.left = ax < -GAMEPAD_DEADZONE || dpadLeft;
+      gamepadKeys.right = ax > GAMEPAD_DEADZONE || dpadRight;
+      gamepadKeys.up = ay < -GAMEPAD_DEADZONE || dpadUp;
+      gamepadKeys.down = ay > GAMEPAD_DEADZONE || dpadDown;
+
+      checkButtonEdge(gp, BTN_SPECIAL1, 'special1');
+      checkButtonEdge(gp, BTN_SPECIAL2, 'special2');
+      // Back in real gameplay — drop any leftover menu highlight/state so
+      // the next menu screen shown starts fresh rather than reusing a
+      // reference into whatever's now hidden.
+      if(gpFocusEl){ setGpFocus(null); lastMenuNavContainer = null; }
+    }
   } else if(lastLoggedGamepadId !== null){
     lastLoggedGamepadId = null;
     gamepadKeys.up = gamepadKeys.down = gamepadKeys.left = gamepadKeys.right = false;

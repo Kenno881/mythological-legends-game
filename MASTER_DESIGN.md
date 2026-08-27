@@ -538,6 +538,38 @@ toward this, §9.
   looping correctly in-browser for all four dungeons via the crossfade
   system above. Not yet done: an actual listen-through for quality/mood
   fit — these are first-generation results, not vetted by ear yet.
+- **Gamepad menu navigation, 2026-08-27 — user request.** A controller
+  already fully drove actual gameplay (`js/input.js`'s `pollGamepad()`)
+  but was completely inert on every screen around a run — login account
+  pick, character roster, class/gender pick, dungeon select, the mid-run
+  boon overlay. One generic, position-based nav added instead of
+  per-screen wiring: d-pad/left-stick does a spatial nearest-neighbor
+  search among whatever `.class-card`/`.dungeon-card`/`.btn`/`.boon-card`
+  elements are actually visible inside the one currently-shown `.screen`
+  (or the boon overlay, which can be up while still mid-run) — scored by
+  distance in the pressed direction weighted against lateral drift, the
+  standard TV/console-UI algorithm, so the same function handles the
+  2-column class-grid, the 1-column dungeon list, and the boon overlay's
+  row without any of them describing their own shape. Button A (the same
+  physical button bound to special1 in-game) clicks the focused element;
+  no separate "back" handling needed since a screen's own Back button is
+  just another candidate. A `.btn` nested inside a card (a roster
+  character's own Delete button) is deliberately excluded from the
+  candidate set — caught live during testing, since without that
+  exclusion a spatial move could land on and confirm-delete a saved
+  character instead of selecting it. The focus ring (`.gp-focus`) only
+  ever appears once a direction is actually pressed on a real controller,
+  so a mouse/touch player sees zero visual change. Deliberately out of
+  scope: typed text (the title screen's passphrase, the login PIN panel)
+  stays keyboard/touch-only — an on-screen keyboard is a separate feature.
+  Confirmed live (`navigator.getGamepads` stubbed in-page, `pollGamepad()`
+  called directly — this sandboxed browser never fires
+  `requestAnimationFrame`, same limitation noted elsewhere in this doc):
+  spatial movement across the roster grid, the dungeon list, and a
+  same-screen sub-panel switch (class-select to gender-select) all landed
+  on the expected element; confirm correctly advanced from character
+  pick to dungeon select; no focus ring appears without simulated
+  controller input.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at
