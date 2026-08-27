@@ -112,10 +112,30 @@ stickZone.addEventListener('touchcancel', stickTouchEnd);
 // ---------- ACTION BUTTONS ----------
 // Basic attack is automatic now (server.js's tickAutoAttack) — no button
 // for it. These two remain fully manual.
+//
+// Fires directly off touchstart, not just `click` — these buttons are only
+// ever visible on a touch device at all (the `@media (hover:hover) and
+// (pointer:fine)` rule in style.css hides #controls entirely otherwise), so
+// `click` here only ever exists as the browser's own synthesized
+// touch-to-click event, not a real mouse click. That synthesis is exactly
+// the kind of thing `html,body{touch-action:none}` (style.css, needed to
+// stop the page itself panning/zooming under a drag) can suppress on some
+// mobile browsers once a touchstart on the same element already called
+// preventDefault() — reported live as "the ability buttons don't work on
+// my phone." The movement stick never had this problem because it was
+// already driven straight off touchstart/touchmove, never a synthesized
+// click; same fix applied here. `click` stays too, harmless if it does
+// fire (queuedAction is idempotent to set twice), and it's what actually
+// drives these buttons for mouse-driven testing (devtools, this project's
+// own browser-automation tooling) where no touchstart ever happens.
 document.getElementById('btnSpecial1').addEventListener('click', ()=> queuedAction = 'special1');
 document.getElementById('btnSpecial2').addEventListener('click', ()=> queuedAction = 'special2');
-['btnSpecial1', 'btnSpecial2'].forEach(id=>{
-  document.getElementById(id).addEventListener('touchstart', e=>e.preventDefault());
+['btnSpecial1', 'btnSpecial2'].forEach((id, i)=>{
+  const action = i === 0 ? 'special1' : 'special2';
+  document.getElementById(id).addEventListener('touchstart', e=>{
+    e.preventDefault();
+    queuedAction = action;
+  });
 });
 
 // ---------- GAMEPAD ----------

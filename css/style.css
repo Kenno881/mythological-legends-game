@@ -48,13 +48,24 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--stone-
   background:var(--stone-dark);box-shadow:0 0 60px rgba(0,0,0,.6);}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:safe center;
   background:radial-gradient(ellipse at center, var(--emerald) 0%, var(--emerald-dark) 70%);
   color:var(--parchment);text-align:center;padding:24px;
   /* On a short landscape phone the title/login/roster stack can be taller
      than the viewport itself — without this the bottom of it (often the
      one button you actually need) renders past the edge with no way to
-     reach it. Same fallback .dungeon-grid already uses for its own list. */
+     reach it. Same fallback .dungeon-grid already uses for its own list.
+     `safe center` (not plain `center`) matters once this is scrollable:
+     plain `center` on an overflowing flex container pushes the excess
+     equally above AND below the container's own box, but overflow:auto's
+     scroll range only ever reaches the positive (below/right) side — the
+     part pushed above the top edge (here, the title/status text) becomes
+     genuinely unreachable no matter how far you scroll. Reported live on
+     a phone as "the dungeon-select screen doesn't scroll all the way to
+     the top, content is cut off." `safe` falls back to start-alignment
+     exactly when centering would create that unreachable overflow, and
+     is a no-op when content already fits (every screen that doesn't
+     scroll looks identical to before). */
   overflow-y:auto;}
 .hidden{display:none !important;}
 
@@ -137,6 +148,17 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .roster-create{display:flex;align-items:center;justify-content:center;
   border-style:dashed;color:var(--wood);}
 .roster-delete{font-size:11px;padding:5px 12px;margin:8px 0 0 0;box-shadow:none;}
+
+/* Character portraits (class-select, gender-select, roster cards) — same
+   pixelated chibi sprites the canvas draws in-game, shown as plain <img>
+   tags here rather than going through render.js's canvas-only preload
+   cache, which only knows how to hand back Image objects for drawImage(),
+   not src strings a DOM element can use directly. */
+.class-card-portrait{display:block;margin:0 auto 8px;max-height:84px;width:auto;image-rendering:pixelated;}
+.gender-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;max-width:320px;margin-bottom:16px;}
+.gender-card{text-align:center;padding:16px 10px;}
+.gender-card h3{margin:0;}
+
 #createGenderPanel{display:flex;flex-direction:column;align-items:center;}
 #pinInput,#pinConfirmInput{font-size:22px;letter-spacing:8px;}
 
