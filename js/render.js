@@ -189,6 +189,25 @@ function updateHud(s){
     setCdVisual('cdSpecial2', me.cds.special2, c.special2.cd);
     document.getElementById('abtnLabel2').textContent = c.special2.name;
   }
+  // Keyboard/gamepad hint (2026-08-27) — the touch buttons above show the
+  // real ability name (abtnLabel1/2), but #kbHint only ever showed generic
+  // "Ability"/"Special" placeholders, since it's a static string in the
+  // HTML rather than driven by updateHud like the touch labels are. A
+  // keyboard/gamepad-only player (no touch buttons ever shown for them —
+  // style.css hides #controls entirely on hover:hover+pointer:fine) had no
+  // way to learn what E/Q or gamepad A/B actually do beyond the one-time
+  // class-select screen. Special's segment only appears once it's actually
+  // learned, matching the touch button's own hidden-until-unlocked state —
+  // showing "Special: Taunt (Q...)" before level 3 would imply a working
+  // button that silently does nothing yet.
+  if(c.special1){
+    const specialSegment = special2Learned
+      ? `&nbsp; Special: ${c.special2.name} (Q / gamepad B)`
+      : '';
+    document.getElementById('kbHint').innerHTML =
+      `Move: WASD / Arrows / gamepad stick &nbsp; Attack: automatic `
+      + `&nbsp; Ability: ${c.special1.name} (E / gamepad A)${specialSegment}`;
+  }
 
   // Loot toast fires for whichever slot actually changed since the last
   // update — each checked independently since a boss kill can grant more
