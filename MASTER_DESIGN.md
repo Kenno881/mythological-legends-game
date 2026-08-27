@@ -515,15 +515,29 @@ toward this, §9.
   own top-level prefix rather than nested under `/assets/`, which would
   have shadowed it) serves and content-types correctly; fetch → decode →
   crossfaded loop start → clean teardown on leaving the dungeon all work;
-  the "no track yet" fallback path (today's actual state — no real tracks
-  have been generated) warns once per dungeon and keeps the procedural
-  ambience running with no gap or glitch. Not yet done: actually running
-  the generator against the real Gemini API to produce the four real
-  tracks — that needs `GEMINI_API_KEY` set and `npm install` inside
-  `tools/`, neither of which this sandboxed environment has; a real family
-  member needs to run `node tools/generate-music.js --file
-  tools/music-requests.json` from the repo root and eyeball/listen to the
-  results before they ship.
+  the "no track yet" fallback path warns once per dungeon and keeps the
+  procedural ambience running with no gap or glitch.
+- **The four real tracks, generated 2026-08-27.** `GEMINI_API_KEY` set,
+  `tools/` deps installed, `node tools/generate-music.js --file
+  music-requests.json` run for real — this immediately surfaced a breaking
+  change: the Interactions API's schema changed in May 2026
+  (`response_modalities`/`outputs[]` → `response_format`/`output_audio`),
+  and the `@google/genai` version this repo had pinned for the sprite tool
+  (`^1.0.0`, resolving to 1.52.0) predates it — every request 400'd with
+  "The legacy Interactions API schema is no longer supported." Bumped
+  `tools/package.json` to `^2.0.0` (verified against the actual v2.19.0
+  type definitions before touching code, not just the migration guide's
+  prose) and updated `generate-music.js`: `response_format: {type:
+  'audio'}` in the request, `interaction.output_audio` instead of
+  scanning `outputs` in the response. `ai.models.generateContent` (what
+  `generate-sprites.js` uses) is unaffected — confirmed its method
+  signature, the `Modality` enum, and `inlineData` are all unchanged in
+  v2.19.0, so the sprite tool keeps working on the same shared dependency.
+  All four tracks generated cleanly on the first retry: real ~30-second
+  stereo 48kHz MP3s in `Assets/audio/music/`, confirmed live playing and
+  looping correctly in-browser for all four dungeons via the crossfade
+  system above. Not yet done: an actual listen-through for quality/mood
+  fit — these are first-generation results, not vetted by ear yet.
 
 ### Known gaps (Campaign)
 - Three of four bosses still only have the shared telegraphed AoE slam at

@@ -67,17 +67,20 @@ async function generateOne(ai, name, prompt){
   const fullPrompt = STYLE_PREFIX + prompt;
   console.log(`[${name}] requesting (model: ${MODEL})...`);
 
+  // The Interactions API's schema changed May 2026 (@google/genai >= 2.0.0
+  // required): response_format replaces the old response_modalities, and
+  // the SDK now exposes the audio output directly as output_audio instead
+  // of a generic outputs[] array to scan.
   const interaction = await ai.interactions.create({
     model: MODEL,
-    input: fullPrompt
+    input: fullPrompt,
+    response_format: { type: 'audio' }
   });
 
-  const outputs = interaction.outputs || [];
-  const audio = outputs.find(o => o.type === 'audio');
+  const audio = interaction.output_audio;
   if(!audio){
-    const text = outputs.find(o => o.type === 'text');
     throw new Error(
-      'No audio came back' + (text ? ` — model said: "${text.text}"` : ` (status: ${interaction.status})`)
+      'No audio came back' + (interaction.output_text ? ` — model said: "${interaction.output_text}"` : ` (status: ${interaction.status})`)
     );
   }
 
