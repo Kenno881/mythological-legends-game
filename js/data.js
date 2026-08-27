@@ -289,12 +289,23 @@ const DUNGEONS = [
         ],
         // Second door added 2026-08-26 — backtracking: south, back the way
         // in (the hub is north of here), matching OPPOSITE_DIR of the
-        // hub's own north-pointing door to this room. `to: 7` (not 5) as
-        // of the same day's dungeon-expansion pass — the boss room moved
-        // to make room for a second hub; this stays a direct shortcut
-        // straight to the boss, bypassing it, same as it always has.
+        // hub's own north-pointing door to this room.
+        //
+        // Retargeted 2026-08-27 (user-reported: "you can go east from the
+        // bandit boss straight to the dungeon boss fight") — this used to
+        // point straight at the boss room (`to: 7`), a direct shortcut kept
+        // "same as it always has" through the dungeon-expansion pass that
+        // added the second hub specifically so "every route through
+        // Sherwood costs at least two real fights, not one." Nobody
+        // reconsidered this door against that new rule when its target
+        // index got bumped from 5 to 7 to follow the boss room — it still
+        // let a single Poacher's Den fight reach the boss directly,
+        // contradicting the goal it was updated alongside. Now routes
+        // through Ford's Edge (`to: 5`) like every other path does; label
+        // changed to match — "Onward to the Ford" is reserved for doors
+        // that actually reach the boss (see Ford's Edge below).
         doors: [
-          { to: 7, dir: 'east', label: "Onward to the Ford" },
+          { to: 5, dir: 'east', label: "Press on toward the Ford" },
           { to: 2, dir: 'south', label: "Back to the Watchtower" }
         ]
       },
@@ -324,11 +335,13 @@ const DUNGEONS = [
         pool: [ {type:"bandit", w:3}, {type:"darkKnight", w:1} ],
         // Second door added 2026-08-26 — backtracking: north, back the way
         // in (the hub is north of here), matching OPPOSITE_DIR of the
-        // hub's own south-pointing door to this room. `to: 7` (not 5) as
-        // of the same day's dungeon-expansion pass — see the Poacher's
-        // Den's identical note above.
+        // hub's own south-pointing door to this room.
+        //
+        // Retargeted 2026-08-27, same fix and same reasoning as the
+        // Poacher's Den's identical note above — this had the exact same
+        // straight-to-boss shortcut, just not the one actually reported.
         doors: [
-          { to: 7, dir: 'east', label: "Onward to the Ford" },
+          { to: 5, dir: 'east', label: "Press on toward the Ford" },
           { to: 2, dir: 'north', label: "Back to the Watchtower" }
         ]
       },

@@ -1395,6 +1395,24 @@ re-ran the *existing* Poacher's Den shortcut and confirmed it still lands
 correctly in the boss room at its new index (7) — the reindex didn't
 quietly strand an old route. Zero server errors throughout.
 
+**The two preserved shortcuts were wrong, caught by actual family play,
+2026-08-27.** "The Poacher's Den's and the Sunken Trail's ... still
+bypass the new hub entirely, on purpose" above was true but never
+re-checked against this same pass's own stated goal one paragraph up —
+"every route through Sherwood now costs at least two real fights, not
+one." A single Poacher's Den (or Sunken Trail) fight followed either
+shortcut straight to the boss, satisfying the letter of "was tested and
+worked" while quietly breaking the rule it shipped alongside. Reported
+live: "you can go east from the bandit boss straight to the dungeon boss
+fight." Fixed by retargeting both from `to: 7` (the boss) to `to: 5`
+(Ford's Edge) — every path now genuinely funnels through the second hub,
+matching the Riverbank Ambush's own door (already routed correctly,
+since it's reached only via Ford's Edge in the first place). Label
+changed to match, "Press on toward the Ford" — "Onward to the Ford"
+stays reserved for doors that actually reach the boss. Confirmed live:
+taking the Poacher's Den's retargeted door lands correctly in Ford's Edge
+(right room id, right monster set), not the boss.
+
 **A run has to be able to fail — added 2026-08-23, shipped same day, see
 Pillar 5.** Dying now leaves a player fallen, not respawned — they need
 an alive teammate to walk over and revive them (a few seconds' channel,
