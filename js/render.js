@@ -201,12 +201,19 @@ function updateHud(s){
   // showing "Special: Taunt (Q...)" before level 3 would imply a working
   // button that silently does nothing yet.
   if(c.special1){
+    // Cooldown as text (2026-08-27) — the touch buttons show it as the
+    // radial cd overlay (setCdVisual above), but that's a visual-only cue
+    // with no text equivalent; a keyboard/gamepad player had no way to
+    // tell "still on cooldown" from "just didn't do anything" without
+    // actually trying it. Omitted entirely once ready, same reasoning as
+    // the Special segment below only appearing once it's actually usable.
+    const cdText = remain => remain > 0 ? ` — ${remain.toFixed(1)}s` : '';
     const specialSegment = special2Learned
-      ? `&nbsp; Special: ${c.special2.name} (Q / gamepad B)`
+      ? `&nbsp; Special: ${c.special2.name} (Q / gamepad B)${cdText(me.cds.special2)}`
       : '';
     document.getElementById('kbHint').innerHTML =
       `Move: WASD / Arrows / gamepad stick &nbsp; Attack: automatic `
-      + `&nbsp; Ability: ${c.special1.name} (E / gamepad A)${specialSegment}`;
+      + `&nbsp; Ability: ${c.special1.name} (E / gamepad A)${cdText(me.cds.special1)}${specialSegment}`;
   }
 
   // Loot toast fires for whichever slot actually changed since the last
