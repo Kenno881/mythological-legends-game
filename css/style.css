@@ -241,6 +241,18 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;}
 .minimap-cell.current{border-color:var(--gold-bright);border-width:2px;background:rgba(232,193,74,.35);}
 .minimap-cell.visited{opacity:.85;}
 .minimap-cell.known{opacity:.4;border-style:dashed;}
+/* Boss room gets a distinct border so it reads as "that's the destination"
+   at a glance, not just another same-looking square (2026-08-27, user-
+   reported "the mapping is very messy right now"). */
+.minimap-cell.boss{border-color:#c94040;}
+.minimap-cell.boss.current{background:rgba(201,64,64,.35);}
+/* Connecting lines between known/visited rooms (js/render.js's
+   updateMinimap) — without these the cells were just a scatter of
+   identical squares with no way to tell which ones actually connect. Drawn
+   behind the cells (appended to the panel first), so a cell's own border
+   always reads cleanly on top. */
+.minimap-lines{position:absolute;top:0;left:0;}
+.minimap-edge{stroke:var(--gold);stroke-width:2;opacity:.5;}
 .roster-entry{background:rgba(20,15,8,.72);border:1px solid var(--gold);border-radius:5px;
   padding:4px 7px;transition:opacity .2s;}
 .roster-entry.me{border-color:var(--gold-bright);border-width:2px;padding:3px 6px;}

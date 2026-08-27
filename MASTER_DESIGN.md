@@ -1291,6 +1291,25 @@ doors actually opened, and correctly reset to just the safe room's cell
 after a wipe. Zero server errors across several full clear/death/wipe
 cycles exercising all three routes.
 
+**Minimap connecting lines + a boss-room marker, 2026-08-27 — user-
+reported: "the mapping is very messy right now."** The cells above were
+correct but unreadable once a hub opened 3 doors at once — same-looking
+squares scattered by `grid` position with no geometry showing which ones
+actually connect. Added an SVG layer (`js/render.js`'s `updateMinimap`)
+drawing a line between any two cells that are *both* already known/
+visited, computed from a `doorTargetsFor()` helper that mirrors
+`server.js`'s own `doorsFor()` fallback (explicit `doors`, else the
+synthesized `{to: roomIndex+1}`) so the lines can never drift from the
+actual room graph. A line only appears once both its endpoints are
+already revealed — same "builds as you explore, never ahead of it" rule
+the cells themselves already followed, just extended to edges. The boss
+room also gets a distinct red border the moment it's known, so there's an
+obvious landmark instead of every cell reading identically. Confirmed
+live: reaching the Watchtower hub and clearing it correctly drew lines
+radiating from the hub to all 3 newly-opened doors; reaching Ford's Edge
+correctly revealed the boss cell with its distinct styling once all 8
+rooms were known.
+
 **Backtracking, 2026-08-26 — user feedback right after the map shipped:
 "we can't go back rooms."** Every door up to this point was one-way, and a
 room forgot it was ever cleared the instant you left it — `loadRoom()`

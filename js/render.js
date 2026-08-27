@@ -336,7 +336,33 @@ function updateRoster(s){
 const visitedRooms = new Set();
 const knownRooms = new Set();
 const minimapEls = new Map(); // roomIndex -> element
+const MINIMAP_CELL = 26, MINIMAP_OFFSET = 60, MINIMAP_SIZE = 20;
+let minimapSvg = null; // lazily created — connecting lines between known/visited cells
 
+function minimapCellCenter(grid){
+  return {
+    x: MINIMAP_OFFSET + grid.x * MINIMAP_CELL + MINIMAP_SIZE / 2,
+    y: MINIMAP_OFFSET + grid.y * MINIMAP_CELL + MINIMAP_SIZE / 2
+  };
+}
+// A room's real door connections — mirrors the exact same "explicit
+// `doors`, else the synthesized `{to: roomIndex+1}`" fallback server.js's
+// doorsFor() applies, so the lines drawn below always match the actual
+// room graph instead of drifting from it.
+function doorTargetsFor(dungeon, ri){
+  const room = dungeon.rooms[ri];
+  if(room.doors) return room.doors.map(d => d.to);
+  return ri + 1 < dungeon.rooms.length ? [ri + 1] : [];
+}
+
+// 2026-08-27 — user-reported: "the mapping is very messy right now."
+// Cells alone (no connecting geometry, every one styled identically) don't
+// read as a maze, just a scatter of same-looking squares once a hub opens
+// 3 doors at once. Two additions: SVG lines between any two cells that are
+// BOTH already known/visited (drawn from the same static door data the
+// cells' own reveal rule already uses, so a line never leaks a connection
+// before its two endpoints are earned), and a distinct border on the boss
+// room so there's an obvious "that's where this is headed" landmark.
 function updateMinimap(s){
   if(!s.dungeonName || !s.roomId) return;
   const dungeon = dungeonByName(s.dungeonName);
@@ -349,6 +375,14 @@ function updateMinimap(s){
   panel.classList.toggle('hidden', !anyGrid);
   if(!anyGrid) return;
 
+  if(!minimapSvg){
+    minimapSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    minimapSvg.setAttribute('class', 'minimap-lines');
+    minimapSvg.setAttribute('width', '150');
+    minimapSvg.setAttribute('height', '150');
+    panel.appendChild(minimapSvg); // added first — cells (appended below) paint on top of the lines
+  }
+
   const idx = Number(s.roomId.split(':')[1]);
   visitedRooms.add(idx);
   const room = dungeon.rooms[idx];
@@ -356,7 +390,6 @@ function updateMinimap(s){
     room.doors.forEach(d => knownRooms.add(d.to));
   }
 
-  const CELL = 26;
   const seen = new Set();
   new Set([...visitedRooms, ...knownRooms]).forEach(ri=>{
     const r = dungeon.rooms[ri];
@@ -369,15 +402,34 @@ function updateMinimap(s){
       panel.appendChild(el);
       minimapEls.set(ri, el);
     }
-    el.style.left = (60 + r.grid.x * CELL) + 'px';
-    el.style.top  = (60 + r.grid.y * CELL) + 'px';
+    el.style.left = (MINIMAP_OFFSET + r.grid.x * MINIMAP_CELL) + 'px';
+    el.style.top  = (MINIMAP_OFFSET + r.grid.y * MINIMAP_CELL) + 'px';
     el.classList.toggle('current', ri === idx);
     el.classList.toggle('visited', visitedRooms.has(ri) && ri !== idx);
     el.classList.toggle('known', !visitedRooms.has(ri));
+    el.classList.toggle('boss', !!r.boss);
   });
   for(const [ri, el] of minimapEls){
     if(!seen.has(ri)){ el.remove(); minimapEls.delete(ri); }
   }
+
+  // Rebuilt every call — cheap at these counts (never more than a
+  // handful of rooms), simpler than diffing edges the way cells are diffed.
+  minimapSvg.innerHTML = '';
+  seen.forEach(ri=>{
+    const from = dungeon.rooms[ri];
+    doorTargetsFor(dungeon, ri).forEach(to=>{
+      if(to === ri || !seen.has(to)) return;
+      const toRoom = dungeon.rooms[to];
+      if(!toRoom || !toRoom.grid) return;
+      const a = minimapCellCenter(from.grid), b = minimapCellCenter(toRoom.grid);
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+      line.setAttribute('class', 'minimap-edge');
+      minimapSvg.appendChild(line);
+    });
+  });
 }
 
 // ---------- ROOM TRANSITIONS (derived from state, not simulated) ----------
