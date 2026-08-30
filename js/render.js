@@ -42,6 +42,127 @@ function applyFacingFlip(cx, dir){
   ctx.translate(-cx, 0);
 }
 
+// ---------- HIT FEEDBACK (2026-08-27) ----------
+// Damage numbers, a brief hit-flash, and screen shake — pure "juice," no
+// gameplay effect. Deliberately client-only: every hp value already arrives
+// in each state snapshot, so this just remembers the last-seen hp per
+// entity and reacts when it changes, rather than needing the server to
+// emit a separate hit event. Dungeon-agnostic (unlike the ambient leaves
+// further below), so it's live for every dungeon, not just Sherwood.
+const lastHp = new Map(); // 'm:'+id / 'p:'+id -> last-seen hp
+const hitFlashUntil = new Map(); // same keys -> performance.now() timestamp
+const HIT_FLASH_MS = 130;
+const floatingTexts = []; // {x,y,text,color,bornAt}
+const FLOAT_TEXT_LIFETIME_MS = 750;
+const FLOAT_TEXT_CAP = 40; // a chaotic wave room shouldn't grow this unbounded
+let shakeMag = 0; // current screen-shake magnitude in px, decays every frame
+let lastFrameAt = performance.now();
+
+function spawnFloatText(x, y, text, color){
+  floatingTexts.push({ x, y, text, color, bornAt: performance.now() });
+  if(floatingTexts.length > FLOAT_TEXT_CAP) floatingTexts.shift();
+}
+
+// entities: s.monsters or s.players. shakeForId: only a hit against this id
+// (the local player, so each client's screen shakes only for its own pain,
+// not a teammate's) bumps shakeMag; pass null to never shake (monsters).
+function updateHitFeedback(prefix, entities, shakeForId){
+  const now = performance.now();
+  const liveKeys = new Set();
+  entities.forEach(e => {
+    const key = prefix + e.id;
+    liveKeys.add(key);
+    const prev = lastHp.get(key);
+    if(prev !== undefined && e.hp !== prev){
+      const delta = prev - e.hp; // positive = damage taken, negative = a heal
+      spawnFloatText(e.x, e.y - (e.radius || 16) - 10,
+        (delta > 0 ? '-' : '+') + Math.round(Math.abs(delta)),
+        delta > 0 ? '#ff5a5a' : '#5ac26a');
+      hitFlashUntil.set(key, now + HIT_FLASH_MS);
+      if(delta > 0 && e.id === shakeForId) shakeMag = Math.min(14, shakeMag + delta / 12);
+    }
+    lastHp.set(key, e.hp);
+  });
+  // Prune ids no longer present (dead-and-reloaded monsters, a player who
+  // left) — same "checking actual membership" approach as monsterFacing
+  // below, since a size check alone can't tell stale from merely unchanged.
+  for(const key of lastHp.keys()){
+    if(key[0] === prefix[0] && !liveKeys.has(key)){ lastHp.delete(key); hitFlashUntil.delete(key); }
+  }
+}
+
+// Drawn on top of a sprite/fallback circle while its hit-flash is active —
+// an additive white wash rather than a hard-edged overlay, so it reads as
+// "flinch" instead of a decorative sticker.
+function drawHitFlash(key, cx, cy, radius){
+  const until = hitFlashUntil.get(key);
+  if(!until || performance.now() > until) return;
+  const frac = (until - performance.now()) / HIT_FLASH_MS;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = frac * 0.55;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawFloatingTexts(){
+  const now = performance.now();
+  ctx.textAlign = 'center'; ctx.font = 'bold 13px Georgia';
+  for(let i = floatingTexts.length - 1; i >= 0; i--){
+    const t = floatingTexts[i];
+    const age = now - t.bornAt;
+    if(age > FLOAT_TEXT_LIFETIME_MS){ floatingTexts.splice(i, 1); continue; }
+    const frac = age / FLOAT_TEXT_LIFETIME_MS;
+    ctx.globalAlpha = 1 - frac;
+    ctx.fillStyle = t.color;
+    ctx.fillText(t.text, t.x, t.y - frac * 34);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+// ---------- AMBIENT DECORATION (2026-08-27, Sherwood Approach only) ----------
+// Pure atmosphere, gated on the dungeon name rather than a generic per-
+// dungeon data field — this is a one-off "does the first dungeon feel
+// alive" pass, not a general per-dungeon decoration system (yet). Drifting
+// leaves in the danger rooms; a warm torch-flicker vignette in the safe
+// room is the one dungeon-agnostic exception, since the safe room already
+// reads specially regardless of dungeon (see floorColor/wallColor above).
+const leafParticles = [];
+function ensureLeafParticles(){
+  if(leafParticles.length > 0) return;
+  for(let i = 0; i < 16; i++){
+    leafParticles.push({
+      x: Math.random() * W, y: Math.random() * H,
+      vy: 18 + Math.random() * 14, vx: -6 + Math.random() * 12,
+      size: 4 + Math.random() * 4, rot: Math.random() * Math.PI * 2,
+      rotSpeed: (-1 + Math.random() * 2) * 0.8
+    });
+  }
+}
+function drawLeafParticles(dtMs){
+  ensureLeafParticles();
+  const dt = dtMs / 1000;
+  leafParticles.forEach(p => {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.rotSpeed * dt;
+    if(p.y > H + 10){ p.y = -10; p.x = Math.random() * W; }
+    if(p.x < -10) p.x = W + 10; else if(p.x > W + 10) p.x = -10;
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = 'rgba(130,155,75,0.5)';
+    ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+}
+function drawSafeRoomVignette(){
+  const flicker = 0.14 + 0.05 * Math.sin(performance.now() / 180) + 0.03 * Math.sin(performance.now() / 470);
+  const grad = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.78);
+  grad.addColorStop(0, 'rgba(255,180,90,0)');
+  grad.addColorStop(1, `rgba(40,20,5,${flicker})`);
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+}
+
 // Server only sends `roomId` ("dungeonIndex:roomIndex") — this looks up the
 // actual room data object (js/data.js) it refers to, so room-level fields
 // like `sideChamber` (moved off the dungeon and onto individual branch
@@ -505,10 +626,26 @@ function drawGate(spot, [r, g, b], label){
 }
 
 function draw(s){
+  const now = performance.now();
+  const dt = now - lastFrameAt;
+  lastFrameAt = now;
+  shakeMag = Math.max(0, shakeMag - dt * 0.03); // decays to 0 in well under a second
+
   ctx.clearRect(0, 0, W, H);
   if(!s) return;
 
+  // Screen shake (2026-08-27) — a small random translate for the whole
+  // frame, undone by the matching ctx.restore() at the end of this
+  // function. Only ever bumped by the local player taking damage (see
+  // updateHitFeedback below), so it never shakes for a teammate's hit.
+  ctx.save();
+  if(shakeMag > 0.05){
+    ctx.translate((Math.random() - 0.5) * 2 * shakeMag, (Math.random() - 0.5) * 2 * shakeMag);
+  }
+
   const me = myPlayer(); // needed below for the auto-attack target-lock ring
+  updateHitFeedback('m:', s.monsters, null);
+  updateHitFeedback('p:', s.players, myId);
   const dungeon = dungeonByName(s.dungeonName);
   // The safe room always reads as warm/torch-lit regardless of which
   // dungeon it belongs to — a deliberate visual break from the danger
@@ -535,6 +672,13 @@ function draw(s){
   ctx.fillStyle = wallColor;
   ctx.fillRect(0, 0, W, 24); ctx.fillRect(0, H - 16, W, 16);
   ctx.fillRect(0, 0, 16, H); ctx.fillRect(W - 16, 0, 16, H);
+
+  // Ambient decoration (2026-08-27, see the AMBIENT DECORATION block above)
+  if(s.safe){
+    drawSafeRoomVignette();
+  } else if(s.dungeonName === 'Sherwood Approach'){
+    drawLeafParticles(dt);
+  }
 
   // Interior walls (MASTER_DESIGN.md §9, 2026-08-25) — real room geometry
   // (js/data.js's per-room `walls`) instead of one open rectangle. Same
@@ -621,6 +765,7 @@ function draw(s){
       ctx.arc(mon.x, mon.y, mon.radius, 0, Math.PI * 2);
       ctx.fill();
     }
+    drawHitFlash('m:' + mon.id, mon.x, visualCenterY, visualRadius);
 
     if(mon.stunTimer > 0){ ctx.fillStyle = "#fff"; ctx.font = "12px Georgia"; ctx.fillText("★", mon.x - 6, visualCenterY - visualRadius - 8); }
     if(mon.mesmerizeTimer > 0){ ctx.font = "14px Georgia"; ctx.fillText("💤", mon.x - 8, visualCenterY - visualRadius - 8); }
@@ -736,6 +881,7 @@ function draw(s){
       ctx.fill();
     }
     ctx.restore(); // alpha back to 1 — the name/revive-bar below should always read clearly
+    drawHitFlash('p:' + p.id, p.x, ringCenterY, ringRadius);
 
     if(p.dead){
       ctx.fillStyle = "#ff9a9a"; ctx.font = "11px Georgia"; ctx.textAlign = "center";
@@ -815,6 +961,9 @@ function draw(s){
       ctx.textAlign = "left";
     }
   });
+
+  drawFloatingTexts();
+  ctx.restore(); // undoes the screen-shake translate from the top of this function
 }
 
 // ---------- RENDER LOOP ----------
